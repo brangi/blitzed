@@ -1,0 +1,28 @@
+[package]
+name = "blitzed-py"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+description = "Python bindings for Blitzed edge AI optimization framework"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "blitzed_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+blitzed-core = { path = "../blitzed-core" }
+pyo3 = { workspace = true }
+numpy = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = ["onnx", "quantization"]
+onnx = ["blitzed-core/onnx"]
+quantization = ["blitzed-core/quantization"]
+pruning = ["blitzed-core/pruning"]
+distillation = ["blitzed-core/distillation"]

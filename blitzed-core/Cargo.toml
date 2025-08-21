@@ -1,0 +1,49 @@
+[package]
+name = "blitzed-core"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+description = "Core optimization engine for edge AI model deployment"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["machine-learning", "edge-ai", "optimization", "quantization", "neural-networks"]
+categories = ["science", "algorithms", "embedded"]
+
+[dependencies]
+# Core ML dependencies
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
+ort = { workspace = true, optional = true }
+
+# Serialization and data
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+
+# Performance and async
+tokio = { workspace = true }
+rayon = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }
+tempfile = { workspace = true }
+env_logger = { workspace = true }
+
+[features]
+default = ["onnx", "quantization"]
+onnx = ["ort"]
+quantization = []
+pruning = []
+distillation = []
+hardware-targets = []

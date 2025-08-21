@@ -1,0 +1,52 @@
+[workspace]
+members = [
+    "blitzed-core",
+    "blitzed-py",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Gibran Rodriguez <brangi000@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/brangirod/blitzed"
+homepage = "https://github.com/brangirod/blitzed"
+
+[workspace.dependencies]
+# Core ML and tensor operations
+candle-core = "0.8"
+candle-nn = "0.8"
+ort = "2.0.0-rc.10"
+tch = "0.16"
+
+# Serialization and data handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Async and performance
+tokio = { version = "1.0", features = ["full"] }
+rayon = "1.10"
+
+# Error handling and utilities
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+# Python bindings
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+
+# CLI and configuration
+clap = { version = "4.5", features = ["derive"] }
+config = "0.14"
+toml = "0.8"
+
+# Testing
+approx = "0.5"
+tempfile = "3.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
