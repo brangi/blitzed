@@ -461,6 +461,8 @@ mod tests {
     use crate::model::{ModelInfo, ModelFormat};
 
     fn create_test_model_info() -> ModelInfo {
+        use crate::model::LayerInfo;
+        
         ModelInfo {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 224, 224]],
@@ -468,6 +470,24 @@ mod tests {
             parameter_count: 1000000,
             model_size_bytes: 4000000, // 4MB
             operations_count: 500000,
+            layers: vec![
+                LayerInfo {
+                    name: "conv1".to_string(),
+                    layer_type: "Conv2d".to_string(),
+                    input_shape: vec![1, 3, 224, 224],
+                    output_shape: vec![1, 64, 112, 112],
+                    parameter_count: 9408, // 3*64*7*7
+                    flops: 118013952,
+                },
+                LayerInfo {
+                    name: "fc".to_string(),
+                    layer_type: "Linear".to_string(),
+                    input_shape: vec![1, 2048],
+                    output_shape: vec![1, 1000],
+                    parameter_count: 2048000,
+                    flops: 2048000,
+                }
+            ],
         }
     }
 

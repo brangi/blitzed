@@ -238,6 +238,7 @@ mod tests {
             parameter_count: 1000000,
             model_size_bytes: 4000000,
             operations_count: 500000,
+            layers: vec![], // Empty for test
         };
         
         Model {
