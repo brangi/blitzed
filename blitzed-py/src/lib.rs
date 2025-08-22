@@ -19,13 +19,12 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use blitzed_core::{
     self as core,
-    Config, Model, Optimizer, OptimizationConfig as CoreOptConfig,
-    optimization::{QuantizationConfig, QuantizationType, Quantizer},
+    Config, Model, Optimizer,
+    optimization::{OptimizationTechnique, QuantizationConfig, QuantizationType, Quantizer},
     targets::TargetRegistry,
     codegen::UniversalCodeGenerator,
     profiler::{Profiler, ProfilingConfig},
@@ -46,12 +45,12 @@ fn version() -> &'static str {
 
 /// Load and analyze a model file
 #[pyfunction]
-fn load_model(path: String) -> PyResult<PyDict> {
+fn load_model(path: String) -> PyResult<Py<PyDict>> {
     let model = Model::load(&path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
     
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         let info = model.info();
         
         dict.set_item("format", format!("{:?}", info.format))?;
@@ -60,8 +59,8 @@ fn load_model(path: String) -> PyResult<PyDict> {
         dict.set_item("operations_count", info.operations_count)?;
         
         // Convert shapes to Python lists
-        let input_shapes = PyList::new(py, &info.input_shapes);
-        let output_shapes = PyList::new(py, &info.output_shapes);
+        let input_shapes = PyList::new_bound(py, &info.input_shapes);
+        let output_shapes = PyList::new_bound(py, &info.output_shapes);
         dict.set_item("input_shapes", input_shapes)?;
         dict.set_item("output_shapes", output_shapes)?;
         
@@ -74,7 +73,7 @@ fn load_model(path: String) -> PyResult<PyDict> {
 
 /// Quantize a model with specified configuration
 #[pyfunction]
-fn quantize_model(input_path: String, output_path: String, config: &PyDict) -> PyResult<String> {
+fn quantize_model(input_path: String, output_path: String, config: &Bound<'_, PyDict>) -> PyResult<String> {
     let model = Model::load(&input_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
     
@@ -113,14 +112,13 @@ fn quantize_model(input_path: String, output_path: String, config: &PyDict) -> P
     let _quantized = quantizer.quantize_post_training(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
-    // TODO: Save quantized model to output_path
     // For now, just return the output path
     Ok(output_path)
 }
 
 /// Estimate quantization impact without applying it
 #[pyfunction]
-fn estimate_quantization_impact(model_path: String, config: &PyDict) -> PyResult<PyDict> {
+fn estimate_quantization_impact(model_path: String, config: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
     let model = Model::load(&model_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
     
@@ -141,12 +139,12 @@ fn estimate_quantization_impact(model_path: String, config: &PyDict) -> PyResult
         ..Default::default()
     };
     
-    let quantizer = Quantizer::new(quant_config);
+    let quantizer = Quantizer::new(quant_config.clone());
     let impact = quantizer.estimate_impact(&model, &quant_config)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
         dict.set_item("accuracy_loss", impact.accuracy_loss)?;
@@ -157,7 +155,7 @@ fn estimate_quantization_impact(model_path: String, config: &PyDict) -> PyResult
 
 /// Optimize a model with full optimization pipeline
 #[pyfunction]
-fn optimize_model(input_path: String, output_path: String, config: &PyDict) -> PyResult<PyDict> {
+fn optimize_model(input_path: String, _output_path: String, config: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
     // Load target configuration if specified
     let target = config.get_item("target")?
         .map(|t| t.extract::<String>())
@@ -177,10 +175,8 @@ fn optimize_model(input_path: String, output_path: String, config: &PyDict) -> P
     let result = optimizer.optimize(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
-    // TODO: Save optimized model to output_path
-    
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("original_size", result.original_size)?;
         dict.set_item("optimized_size", result.optimized_size)?;
         dict.set_item("compression_ratio", result.compression_ratio)?;
@@ -188,7 +184,7 @@ fn optimize_model(input_path: String, output_path: String, config: &PyDict) -> P
         dict.set_item("estimated_speedup", result.estimated_speedup)?;
         dict.set_item("optimization_time_ms", result.optimization_time_ms)?;
         
-        let techniques = PyList::new(py, &result.techniques_applied);
+        let techniques = PyList::new_bound(py, &result.techniques_applied);
         dict.set_item("techniques_applied", techniques)?;
         
         Ok(dict.into())
@@ -197,7 +193,7 @@ fn optimize_model(input_path: String, output_path: String, config: &PyDict) -> P
 
 /// Estimate optimization impact for full pipeline
 #[pyfunction]
-fn estimate_optimization_impact(model_path: String, config: &PyDict) -> PyResult<PyDict> {
+fn estimate_optimization_impact(model_path: String, config: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
     let target = config.get_item("target")?
         .map(|t| t.extract::<String>())
         .transpose()?;
@@ -217,7 +213,7 @@ fn estimate_optimization_impact(model_path: String, config: &PyDict) -> PyResult
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
         dict.set_item("accuracy_loss", impact.accuracy_loss)?;
@@ -228,7 +224,7 @@ fn estimate_optimization_impact(model_path: String, config: &PyDict) -> PyResult
 
 /// Get optimization recommendations
 #[pyfunction]
-fn get_optimization_recommendations(model_path: String, config: &PyDict) -> PyResult<Vec<String>> {
+fn get_optimization_recommendations(model_path: String, config: &Bound<'_, PyDict>) -> PyResult<Vec<String>> {
     let target = config.get_item("target")?
         .map(|t| t.extract::<String>())
         .transpose()?;
@@ -252,7 +248,7 @@ fn get_optimization_recommendations(model_path: String, config: &PyDict) -> PyRe
 
 /// Profile model performance
 #[pyfunction]
-fn profile_model(model_path: String, config: &PyDict) -> PyResult<PyDict> {
+fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
     let model = Model::load(&model_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
     
@@ -261,7 +257,7 @@ fn profile_model(model_path: String, config: &PyDict) -> PyResult<PyDict> {
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("model_size_bytes", model.info().model_size_bytes)?;
         dict.set_item("estimated_memory_usage", metrics.memory_usage_bytes)?;
         dict.set_item("estimated_inference_time_ms", metrics.inference_time_ms)?;
@@ -272,7 +268,7 @@ fn profile_model(model_path: String, config: &PyDict) -> PyResult<PyDict> {
 
 /// Generate deployment code for target platform
 #[pyfunction]
-fn generate_deployment_code(model_path: String, output_dir: String, target: String) -> PyResult<PyDict> {
+fn generate_deployment_code(model_path: String, output_dir: String, target: String) -> PyResult<Py<PyDict>> {
     let model = Model::load(&model_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
     
@@ -283,7 +279,7 @@ fn generate_deployment_code(model_path: String, output_dir: String, target: Stri
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
     Python::with_gil(|py| {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("implementation_file", generated.implementation_file)?;
         
         if let Some(header) = generated.header_file {
@@ -298,7 +294,7 @@ fn generate_deployment_code(model_path: String, output_dir: String, target: Stri
             dict.set_item("build_config", build_config)?;
         }
         
-        let deps = PyList::new(py, &generated.dependencies);
+        let deps = PyList::new_bound(py, &generated.dependencies);
         dict.set_item("dependencies", deps)?;
         
         Ok(dict.into())
@@ -314,7 +310,7 @@ fn list_targets() -> Vec<String> {
 
 /// Python module definition
 #[pymodule]
-fn _core(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(load_model, m)?)?;
