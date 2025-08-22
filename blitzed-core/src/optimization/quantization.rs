@@ -122,6 +122,7 @@ impl Quantizer {
     }
 
     /// Calculate quantization parameters for a layer
+    #[allow(dead_code)]
     fn calculate_quantization_params(&self, values: &[f32]) -> Result<(f32, i32)> {
         if values.is_empty() {
             return Err(BlitzedError::OptimizationFailed {
@@ -161,7 +162,7 @@ impl OptimizationTechnique for Quantizer {
         quantizer.quantize_post_training(model)
     }
 
-    fn estimate_impact(&self, model: &Model, _config: &Self::Config) -> Result<OptimizationImpact> {
+    fn estimate_impact(&self, _model: &Model, _config: &Self::Config) -> Result<OptimizationImpact> {
         let size_reduction = match self.config.quantization_type {
             QuantizationType::Int8 => 0.75,    // 75% size reduction
             QuantizationType::Int4 => 0.875,   // 87.5% size reduction
