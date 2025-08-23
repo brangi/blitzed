@@ -14,7 +14,7 @@
 
 //! Arduino hardware target implementation
 
-use super::{HardwareTarget, HardwareConstraints, OptimizationStrategy};
+use super::{HardwareConstraints, HardwareTarget, OptimizationStrategy};
 
 /// Arduino Uno/Nano hardware target
 pub struct ArduinoTarget {
@@ -25,9 +25,9 @@ impl ArduinoTarget {
     pub fn new() -> Self {
         Self {
             constraints: HardwareConstraints {
-                memory_limit: 2 * 1024, // 2KB RAM
+                memory_limit: 2 * 1024,   // 2KB RAM
                 storage_limit: 32 * 1024, // 32KB Flash
-                cpu_frequency: 16, // MHz
+                cpu_frequency: 16,        // MHz
                 architecture: "AVR".to_string(),
                 word_size: 8,
                 has_fpu: false,

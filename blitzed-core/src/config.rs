@@ -83,9 +83,9 @@ impl Default for Config {
             },
             hardware: HardwareConfig {
                 target: "generic".to_string(),
-                memory_limit: 1024 * 1024, // 1MB
+                memory_limit: 1024 * 1024,      // 1MB
                 storage_limit: 4 * 1024 * 1024, // 4MB
-                cpu_frequency: 240, // MHz (ESP32-like)
+                cpu_frequency: 240,             // MHz (ESP32-like)
                 use_accelerators: false,
             },
             deployment: DeploymentConfig {
@@ -103,28 +103,31 @@ impl Config {
     /// Load configuration from file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)
-            .map_err(|e| BlitzedError::Configuration(e.to_string()))?;
+        let config: Config =
+            toml::from_str(&content).map_err(|e| BlitzedError::Configuration(e.to_string()))?;
         Ok(config)
     }
 
     /// Save configuration to file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| BlitzedError::Configuration(e.to_string()))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| BlitzedError::Configuration(e.to_string()))?;
         std::fs::write(path, content)?;
         Ok(())
     }
 
     /// Validate configuration for consistency
     pub fn validate(&self) -> Result<()> {
-        if self.optimization.max_accuracy_loss < 0.0 || self.optimization.max_accuracy_loss > 100.0 {
+        if self.optimization.max_accuracy_loss < 0.0 || self.optimization.max_accuracy_loss > 100.0
+        {
             return Err(BlitzedError::Configuration(
                 "max_accuracy_loss must be between 0 and 100".to_string(),
             ));
         }
 
-        if self.optimization.target_compression <= 0.0 || self.optimization.target_compression >= 1.0 {
+        if self.optimization.target_compression <= 0.0
+            || self.optimization.target_compression >= 1.0
+        {
             return Err(BlitzedError::Configuration(
                 "target_compression must be between 0 and 1".to_string(),
             ));
@@ -142,7 +145,7 @@ impl Config {
     /// Get hardware-specific preset configurations
     pub fn preset(target: &str) -> Result<Self> {
         let mut config = Self::default();
-        
+
         match target.to_lowercase().as_str() {
             "esp32" => {
                 config.hardware.target = "esp32".to_string();
@@ -179,7 +182,7 @@ impl Config {
                 });
             }
         }
-        
+
         Ok(config)
     }
 }
@@ -200,18 +203,24 @@ mod tests {
         let config = Config::default();
         let serialized = toml::to_string(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
-        assert_eq!(config.optimization.max_accuracy_loss, deserialized.optimization.max_accuracy_loss);
+        assert_eq!(
+            config.optimization.max_accuracy_loss,
+            deserialized.optimization.max_accuracy_loss
+        );
     }
 
     #[test]
     fn test_config_file_operations() {
         let config = Config::default();
         let temp_file = NamedTempFile::new().unwrap();
-        
+
         config.save(temp_file.path()).unwrap();
         let loaded = Config::load(temp_file.path()).unwrap();
-        
-        assert_eq!(config.optimization.max_accuracy_loss, loaded.optimization.max_accuracy_loss);
+
+        assert_eq!(
+            config.optimization.max_accuracy_loss,
+            loaded.optimization.max_accuracy_loss
+        );
     }
 
     #[test]

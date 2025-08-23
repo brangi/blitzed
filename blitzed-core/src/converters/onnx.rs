@@ -14,8 +14,8 @@
 
 //! ONNX model converter and loader
 
-use crate::{BlitzedError, Model, Result};
 use super::ModelConverter;
+use crate::{BlitzedError, Model, Result};
 use std::path::Path;
 
 /// ONNX model converter
@@ -34,7 +34,9 @@ impl ModelConverter for OnnxConverter {
 
     fn save_model<P: AsRef<Path>>(&self, _model: &Model, _path: P) -> Result<()> {
         // TODO: Implement ONNX model saving
-        Err(BlitzedError::Internal("ONNX saving not implemented".to_string()))
+        Err(BlitzedError::Internal(
+            "ONNX saving not implemented".to_string(),
+        ))
     }
 
     fn supported_extensions(&self) -> &'static [&'static str] {

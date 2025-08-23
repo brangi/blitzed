@@ -14,8 +14,8 @@
 
 //! Knowledge distillation for model compression
 
+use super::{OptimizationImpact, OptimizationTechnique};
 use crate::{BlitzedError, Model, Result};
-use super::{OptimizationTechnique, OptimizationImpact};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for knowledge distillation
@@ -65,7 +65,11 @@ impl OptimizationTechnique for Distiller {
         })
     }
 
-    fn estimate_impact(&self, _model: &Model, _config: &Self::Config) -> Result<OptimizationImpact> {
+    fn estimate_impact(
+        &self,
+        _model: &Model,
+        _config: &Self::Config,
+    ) -> Result<OptimizationImpact> {
         // Conservative estimates for knowledge distillation
         Ok(OptimizationImpact {
             size_reduction: 0.5, // Assume 50% size reduction with smaller student

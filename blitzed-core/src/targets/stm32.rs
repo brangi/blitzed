@@ -14,7 +14,7 @@
 
 //! STM32 hardware target implementation
 
-use super::{HardwareTarget, HardwareConstraints, OptimizationStrategy};
+use super::{HardwareConstraints, HardwareTarget, OptimizationStrategy};
 
 /// STM32 hardware target
 pub struct Stm32Target {
@@ -25,9 +25,9 @@ impl Stm32Target {
     pub fn new() -> Self {
         Self {
             constraints: HardwareConstraints {
-                memory_limit: 128 * 1024, // 128KB RAM
+                memory_limit: 128 * 1024,   // 128KB RAM
                 storage_limit: 1024 * 1024, // 1MB Flash
-                cpu_frequency: 72, // MHz
+                cpu_frequency: 72,          // MHz
                 architecture: "ARM Cortex-M".to_string(),
                 word_size: 32,
                 has_fpu: true, // Many STM32 have FPU

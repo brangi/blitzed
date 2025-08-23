@@ -1,0 +1,12 @@
+# Rust formatting configuration for Blitzed
+# Copyright 2025 Gibran Rodriguez <brangi000@gmail.com>
+
+edition = "2021"
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+merge_derives = true

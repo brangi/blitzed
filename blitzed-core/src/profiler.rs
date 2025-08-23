@@ -83,8 +83,11 @@ impl Profiler {
 
     /// Profile model inference performance
     pub fn profile_inference(&self, model: &Model) -> Result<PerformanceMetrics> {
-        log::info!("Starting inference profiling with {} warmup runs and {} benchmark runs", 
-                  self.config.warmup_runs, self.config.benchmark_runs);
+        log::info!(
+            "Starting inference profiling with {} warmup runs and {} benchmark runs",
+            self.config.warmup_runs,
+            self.config.benchmark_runs
+        );
 
         // Generate dummy input data
         let input_data = self.generate_dummy_input(model)?;
@@ -109,7 +112,8 @@ impl Profiler {
         let total_time = start_time.elapsed();
 
         // Calculate statistics
-        let avg_inference_time = inference_times.iter().sum::<Duration>() / inference_times.len() as u32;
+        let avg_inference_time =
+            inference_times.iter().sum::<Duration>() / inference_times.len() as u32;
         let throughput = self.config.benchmark_runs as f32 / total_time.as_secs_f32();
 
         let metrics = PerformanceMetrics {
@@ -131,13 +135,13 @@ impl Profiler {
     /// Generate dummy input data for profiling
     fn generate_dummy_input(&self, model: &Model) -> Result<Vec<Vec<f32>>> {
         let mut inputs = Vec::new();
-        
+
         for shape in &model.info().input_shapes {
             let size = shape.iter().product::<i64>() as usize;
             let dummy_data: Vec<f32> = (0..size).map(|i| (i % 255) as f32 / 255.0).collect();
             inputs.push(dummy_data);
         }
-        
+
         Ok(inputs)
     }
 
@@ -157,8 +161,11 @@ impl Profiler {
         let optimized_metrics = self.profile_inference(optimized)?;
 
         let comparison = ComparisonResult {
-            speedup_ratio: original_metrics.inference_time_ms as f32 / optimized_metrics.inference_time_ms as f32,
-            memory_reduction: 1.0 - (optimized_metrics.memory_usage_bytes as f32 / original_metrics.memory_usage_bytes as f32),
+            speedup_ratio: original_metrics.inference_time_ms as f32
+                / optimized_metrics.inference_time_ms as f32,
+            memory_reduction: 1.0
+                - (optimized_metrics.memory_usage_bytes as f32
+                    / original_metrics.memory_usage_bytes as f32),
             throughput_improvement: optimized_metrics.throughput / original_metrics.throughput,
             original_metrics,
             optimized_metrics,
@@ -166,16 +173,27 @@ impl Profiler {
 
         log::info!("Performance comparison:");
         log::info!("  Speedup: {:.2}x", comparison.speedup_ratio);
-        log::info!("  Memory reduction: {:.1}%", comparison.memory_reduction * 100.0);
-        log::info!("  Throughput improvement: {:.2}x", comparison.throughput_improvement);
+        log::info!(
+            "  Memory reduction: {:.1}%",
+            comparison.memory_reduction * 100.0
+        );
+        log::info!(
+            "  Throughput improvement: {:.2}x",
+            comparison.throughput_improvement
+        );
 
         Ok(comparison)
     }
 
     /// Benchmark against hardware constraints
-    pub fn benchmark_constraints(&self, model: &Model, memory_limit: usize, latency_limit_ms: u64) -> Result<ConstraintReport> {
+    pub fn benchmark_constraints(
+        &self,
+        model: &Model,
+        memory_limit: usize,
+        latency_limit_ms: u64,
+    ) -> Result<ConstraintReport> {
         let metrics = self.profile_inference(model)?;
-        
+
         let memory_ok = metrics.memory_usage_bytes <= memory_limit;
         let latency_ok = metrics.inference_time_ms <= latency_limit_ms;
 
@@ -190,14 +208,26 @@ impl Profiler {
         };
 
         log::info!("Constraint validation:");
-        log::info!("  Memory: {} / {} KB ({})", 
-                  report.memory_usage / 1024, 
-                  report.memory_limit / 1024,
-                  if report.memory_constraint_met { "OK" } else { "FAIL" });
-        log::info!("  Latency: {} / {} ms ({})", 
-                  report.latency_ms, 
-                  report.latency_limit_ms,
-                  if report.latency_constraint_met { "OK" } else { "FAIL" });
+        log::info!(
+            "  Memory: {} / {} KB ({})",
+            report.memory_usage / 1024,
+            report.memory_limit / 1024,
+            if report.memory_constraint_met {
+                "OK"
+            } else {
+                "FAIL"
+            }
+        );
+        log::info!(
+            "  Latency: {} / {} ms ({})",
+            report.latency_ms,
+            report.latency_limit_ms,
+            if report.latency_constraint_met {
+                "OK"
+            } else {
+                "FAIL"
+            }
+        );
 
         Ok(report)
     }
@@ -228,7 +258,7 @@ pub struct ConstraintReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ModelInfo, ModelFormat, ModelData};
+    use crate::model::{ModelData, ModelFormat, ModelInfo};
 
     fn create_test_model() -> Model {
         let info = ModelInfo {
@@ -240,7 +270,7 @@ mod tests {
             operations_count: 500000,
             layers: vec![], // Empty for test
         };
-        
+
         Model {
             info,
             data: ModelData::Raw(vec![0u8; 1000]),
@@ -259,10 +289,10 @@ mod tests {
     fn test_dummy_input_generation() {
         let profiler = Profiler::new(ProfilingConfig::default());
         let model = create_test_model();
-        
+
         let inputs = profiler.generate_dummy_input(&model).unwrap();
         assert_eq!(inputs.len(), 1); // One input tensor
-        assert_eq!(inputs[0].len(), 1 * 3 * 224 * 224); // Expected size
+        assert_eq!(inputs[0].len(), 3 * 224 * 224); // Expected size
     }
 
     #[test]

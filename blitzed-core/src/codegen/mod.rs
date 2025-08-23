@@ -15,21 +15,21 @@
 //! Code generation for deployment targets
 
 pub mod arduino;
-pub mod esp32;
 pub mod c;
+pub mod esp32;
 pub mod raspberry_pi;
 
-use crate::{Model, Result, BlitzedError};
+use crate::{BlitzedError, Model, Result};
 use std::path::Path;
 
 /// Trait for code generators
 pub trait CodeGenerator {
     /// Generate deployment code for the optimized model
     fn generate(&self, model: &Model, output_dir: &Path) -> Result<GeneratedCode>;
-    
+
     /// Get the target name this generator supports
     fn target_name(&self) -> &str;
-    
+
     /// Get required dependencies/libraries
     fn dependencies(&self) -> Vec<String>;
 }
@@ -59,29 +59,39 @@ impl UniversalCodeGenerator {
         let mut generator = Self {
             generators: std::collections::HashMap::new(),
         };
-        
+
         // Register built-in generators
         generator.register("arduino", Box::new(arduino::ArduinoCodeGen::new()));
         generator.register("esp32", Box::new(esp32::Esp32CodeGen::new()));
         generator.register("c", Box::new(c::CCodeGen::new()));
-        generator.register("raspberry_pi", Box::new(raspberry_pi::RaspberryPiCodeGen::new()));
-        
+        generator.register(
+            "raspberry_pi",
+            Box::new(raspberry_pi::RaspberryPiCodeGen::new()),
+        );
+
         generator
     }
-    
+
     pub fn register(&mut self, target: &str, generator: Box<dyn CodeGenerator>) {
         self.generators.insert(target.to_string(), generator);
     }
-    
-    pub fn generate(&self, target: &str, model: &Model, output_dir: &Path) -> Result<GeneratedCode> {
-        let generator = self.generators.get(target)
-            .ok_or_else(|| BlitzedError::UnsupportedTarget {
-                target: target.to_string(),
-            })?;
-        
+
+    pub fn generate(
+        &self,
+        target: &str,
+        model: &Model,
+        output_dir: &Path,
+    ) -> Result<GeneratedCode> {
+        let generator =
+            self.generators
+                .get(target)
+                .ok_or_else(|| BlitzedError::UnsupportedTarget {
+                    target: target.to_string(),
+                })?;
+
         generator.generate(model, output_dir)
     }
-    
+
     pub fn list_targets(&self) -> Vec<&str> {
         self.generators.keys().map(|s| s.as_str()).collect()
     }

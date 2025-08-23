@@ -14,8 +14,8 @@
 
 //! Quantization algorithms for model compression
 
+use super::{OptimizationImpact, OptimizationTechnique};
 use crate::{BlitzedError, Model, Result};
-use super::{OptimizationTechnique, OptimizationImpact};
 use serde::{Deserialize, Serialize};
 
 /// Quantization types supported
@@ -67,8 +67,11 @@ impl Quantizer {
 
     /// Perform post-training quantization
     pub fn quantize_post_training(&self, model: &Model) -> Result<QuantizedModel> {
-        log::info!("Starting post-training quantization with {:?}", self.config.quantization_type);
-        
+        log::info!(
+            "Starting post-training quantization with {:?}",
+            self.config.quantization_type
+        );
+
         match self.config.quantization_type {
             QuantizationType::Int8 => self.quantize_int8(model),
             QuantizationType::Int4 => self.quantize_int4(model),
@@ -79,30 +82,39 @@ impl Quantizer {
 
     /// INT8 quantization implementation
     fn quantize_int8(&self, model: &Model) -> Result<QuantizedModel> {
-        log::info!("Performing INT8 quantization (symmetric: {}, per_channel: {})", 
-                  self.config.symmetric, self.config.per_channel);
-        
+        log::info!(
+            "Performing INT8 quantization (symmetric: {}, per_channel: {})",
+            self.config.symmetric,
+            self.config.per_channel
+        );
+
         // Process all model weights
         let quantized_layers = self.process_model_weights(model)?;
-        
+
         // Calculate total sizes
         let original_size: usize = quantized_layers.iter().map(|l| l.original_size).sum();
         let quantized_size: usize = quantized_layers.iter().map(|l| l.quantized_size).sum();
-        
+
         // Calculate compression metrics
         let compression_ratio = 1.0 - (quantized_size as f32 / original_size as f32);
         let size_reduction_mb = (original_size - quantized_size) as f32 / (1024.0 * 1024.0);
-        
-        log::info!("Quantization complete: {:.1}% size reduction ({:.2} MB saved)", 
-                  compression_ratio * 100.0, size_reduction_mb);
-        
+
+        log::info!(
+            "Quantization complete: {:.1}% size reduction ({:.2} MB saved)",
+            compression_ratio * 100.0,
+            size_reduction_mb
+        );
+
         // Estimate accuracy loss based on quantization parameters
         let avg_accuracy_loss = self.estimate_accuracy_loss(&quantized_layers);
-        
+
         // Build legacy quantization params for compatibility
         let legacy_params = QuantizationParams {
             scale: quantized_layers.iter().map(|l| l.param.scale).collect(),
-            zero_point: quantized_layers.iter().map(|l| l.param.zero_point).collect(),
+            zero_point: quantized_layers
+                .iter()
+                .map(|l| l.param.zero_point)
+                .collect(),
             quantization_type: QuantizationType::Int8,
         };
 
@@ -119,22 +131,25 @@ impl Quantizer {
     fn estimate_accuracy_loss(&self, layers: &[QuantizedLayer]) -> f32 {
         // Calculate weighted average based on layer sizes
         let total_params: usize = layers.iter().map(|l| l.weight_count).sum();
-        
-        let weighted_loss: f32 = layers.iter().map(|layer| {
-            let weight = layer.weight_count as f32 / total_params as f32;
-            let layer_loss = if layer.param.scale < 0.001 {
-                0.5 // Very fine quantization, low loss
-            } else if layer.param.scale > 0.1 {
-                5.0 // Coarse quantization, higher loss
-            } else {
-                2.0 // Medium quantization
-            };
-            weight * layer_loss
-        }).sum();
+
+        let weighted_loss: f32 = layers
+            .iter()
+            .map(|layer| {
+                let weight = layer.weight_count as f32 / total_params as f32;
+                let layer_loss = if layer.param.scale < 0.001 {
+                    0.5 // Very fine quantization, low loss
+                } else if layer.param.scale > 0.1 {
+                    5.0 // Coarse quantization, higher loss
+                } else {
+                    2.0 // Medium quantization
+                };
+                weight * layer_loss
+            })
+            .sum();
 
         // Add base accuracy loss for INT8 quantization
         let base_loss = if self.config.symmetric { 1.5 } else { 2.0 };
-        
+
         (base_loss + weighted_loss).min(10.0) // Cap at 10% loss
     }
 
@@ -222,22 +237,26 @@ impl Quantizer {
 
     /// Quantize FP32 values to INT8
     fn quantize_values_int8(&self, values: &[f32], param: &QuantizationParam) -> Vec<i8> {
-        values.iter().map(|&x| {
-            let quantized = (x / param.scale).round() + param.zero_point as f32;
-            if self.config.symmetric {
-                quantized.clamp(-127.0, 127.0) as i8
-            } else {
-                quantized.clamp(0.0, 255.0) as u8 as i8
-            }
-        }).collect()
+        values
+            .iter()
+            .map(|&x| {
+                let quantized = (x / param.scale).round() + param.zero_point as f32;
+                if self.config.symmetric {
+                    quantized.clamp(-127.0, 127.0) as i8
+                } else {
+                    quantized.clamp(0.0, 255.0) as u8 as i8
+                }
+            })
+            .collect()
     }
 
     /// Dequantize INT8 values back to FP32 (for validation)
     #[allow(dead_code)]
     fn dequantize_values_int8(&self, quantized: &[i8], param: &QuantizationParam) -> Vec<f32> {
-        quantized.iter().map(|&q| {
-            (q as f32 - param.zero_point as f32) * param.scale
-        }).collect()
+        quantized
+            .iter()
+            .map(|&q| (q as f32 - param.zero_point as f32) * param.scale)
+            .collect()
     }
 
     /// Process model weights for quantization
@@ -245,13 +264,13 @@ impl Quantizer {
         // For now, simulate processing model layers
         // In a real implementation, this would extract actual weights from the model
         let mut quantized_layers = Vec::new();
-        
+
         // Simulate different layer types with different weight distributions
         let layer_configs = vec![
-            ("conv1", self.generate_conv_weights(64, 3, 3, 3)),     // Conv layer
-            ("conv2", self.generate_conv_weights(128, 64, 3, 3)),   // Conv layer
-            ("fc1", self.generate_fc_weights(512, 1024)),           // FC layer
-            ("fc2", self.generate_fc_weights(1024, 1000)),          // FC layer
+            ("conv1", self.generate_conv_weights(64, 3, 3, 3)), // Conv layer
+            ("conv2", self.generate_conv_weights(128, 64, 3, 3)), // Conv layer
+            ("fc1", self.generate_fc_weights(512, 1024)),       // FC layer
+            ("fc2", self.generate_fc_weights(1024, 1000)),      // FC layer
         ];
 
         for (name, weights) in layer_configs {
@@ -266,11 +285,11 @@ impl Quantizer {
     fn quantize_layer(&self, name: &str, weights: &[f32]) -> Result<QuantizedLayer> {
         let param = self.calculate_quantization_params(weights)?;
         let quantized_weights = self.quantize_values_int8(weights, &param);
-        
+
         // Calculate size reduction
         let original_size = weights.len() * 4; // FP32 = 4 bytes
-        let quantized_size = quantized_weights.len() * 1; // INT8 = 1 byte
-        
+        let quantized_size = quantized_weights.len(); // INT8 = 1 byte
+
         Ok(QuantizedLayer {
             name: name.to_string(),
             original_size,
@@ -282,7 +301,13 @@ impl Quantizer {
     }
 
     /// Generate simulated convolutional layer weights
-    fn generate_conv_weights(&self, out_channels: usize, in_channels: usize, height: usize, width: usize) -> Vec<f32> {
+    fn generate_conv_weights(
+        &self,
+        out_channels: usize,
+        in_channels: usize,
+        height: usize,
+        width: usize,
+    ) -> Vec<f32> {
         let total_weights = out_channels * in_channels * height * width;
         (0..total_weights)
             .map(|i| {
@@ -290,7 +315,7 @@ impl Quantizer {
                 let fan_in = in_channels * height * width;
                 let fan_out = out_channels * height * width;
                 let scale = (2.0 / (fan_in + fan_out) as f32).sqrt();
-                let x = (i as f32 * 0.01) % 6.28; // Simple pseudo-random
+                let x = (i as f32 * 0.01) % std::f32::consts::TAU; // Simple pseudo-random
                 scale * x.sin()
             })
             .collect()
@@ -303,7 +328,7 @@ impl Quantizer {
             .map(|i| {
                 // Simulate Xavier initialization
                 let scale = (2.0 / (input_size + output_size) as f32).sqrt();
-                let x = (i as f32 * 0.013) % 6.28; // Simple pseudo-random
+                let x = (i as f32 * 0.013) % std::f32::consts::TAU; // Simple pseudo-random
                 scale * x.cos()
             })
             .collect()
@@ -319,12 +344,16 @@ impl OptimizationTechnique for Quantizer {
         quantizer.quantize_post_training(model)
     }
 
-    fn estimate_impact(&self, _model: &Model, _config: &Self::Config) -> Result<OptimizationImpact> {
+    fn estimate_impact(
+        &self,
+        _model: &Model,
+        _config: &Self::Config,
+    ) -> Result<OptimizationImpact> {
         let size_reduction = match self.config.quantization_type {
-            QuantizationType::Int8 => 0.75,    // 75% size reduction
-            QuantizationType::Int4 => 0.875,   // 87.5% size reduction
+            QuantizationType::Int8 => 0.75,      // 75% size reduction
+            QuantizationType::Int4 => 0.875,     // 87.5% size reduction
             QuantizationType::Binary => 0.96875, // 96.875% size reduction
-            QuantizationType::Mixed => 0.6,    // 60% size reduction
+            QuantizationType::Mixed => 0.6,      // 60% size reduction
         };
 
         let speed_improvement = match self.config.quantization_type {
@@ -406,10 +435,13 @@ impl QuantizedModel {
     /// Get detailed quantization statistics
     pub fn get_stats(&self) -> QuantizationStats {
         let total_original_params: usize = self.layers.iter().map(|l| l.weight_count).sum();
-        let avg_scale: f32 = self.layers.iter().map(|l| l.param.scale).sum::<f32>() / self.layers.len() as f32;
-        
-        let size_reduction_mb = (self.original_model_info.model_size_bytes - self.quantized_size) as f32 / (1024.0 * 1024.0);
-        
+        let avg_scale: f32 =
+            self.layers.iter().map(|l| l.param.scale).sum::<f32>() / self.layers.len() as f32;
+
+        let size_reduction_mb = (self.original_model_info.model_size_bytes - self.quantized_size)
+            as f32
+            / (1024.0 * 1024.0);
+
         QuantizationStats {
             compression_ratio: self.compression_ratio(),
             size_reduction_mb,
@@ -422,15 +454,16 @@ impl QuantizedModel {
 
     /// Get layer-by-layer breakdown
     pub fn get_layer_breakdown(&self) -> Vec<LayerQuantizationInfo> {
-        self.layers.iter().map(|layer| {
-            LayerQuantizationInfo {
+        self.layers
+            .iter()
+            .map(|layer| LayerQuantizationInfo {
                 name: layer.name.clone(),
                 compression_ratio: 1.0 - (layer.quantized_size as f32 / layer.original_size as f32),
                 scale: layer.param.scale,
                 zero_point: layer.param.zero_point,
                 parameter_count: layer.weight_count,
-            }
-        }).collect()
+            })
+            .collect()
     }
 }
 
@@ -458,11 +491,11 @@ pub struct LayerQuantizationInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ModelInfo, ModelFormat};
+    use crate::model::{ModelFormat, ModelInfo};
 
     fn create_test_model_info() -> ModelInfo {
         use crate::model::LayerInfo;
-        
+
         ModelInfo {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 224, 224]],
@@ -486,7 +519,7 @@ mod tests {
                     output_shape: vec![1, 1000],
                     parameter_count: 2048000,
                     flops: 2048000,
-                }
+                },
             ],
         }
     }
@@ -503,7 +536,7 @@ mod tests {
     fn test_estimate_impact() {
         let config = QuantizationConfig::default();
         let quantizer = Quantizer::new(config.clone());
-        
+
         // Create a mock model
         let model_info = create_test_model_info();
         let model_data = crate::model::ModelData::Raw(vec![0u8; 1000]);
@@ -522,10 +555,10 @@ mod tests {
     fn test_quantization_params_calculation() {
         let config = QuantizationConfig::default();
         let quantizer = Quantizer::new(config);
-        
+
         let values = vec![0.0, 1.0, 2.0, 3.0, 4.0];
         let param = quantizer.calculate_quantization_params(&values).unwrap();
-        
+
         assert!(param.scale > 0.0);
         assert_eq!(param.zero_point, 0); // Symmetric quantization
     }
@@ -538,19 +571,23 @@ mod tests {
             ..Default::default()
         };
         let symmetric_quantizer = Quantizer::new(symmetric_config);
-        
+
         let values = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
-        let symmetric_param = symmetric_quantizer.calculate_quantization_params(&values).unwrap();
+        let symmetric_param = symmetric_quantizer
+            .calculate_quantization_params(&values)
+            .unwrap();
         assert_eq!(symmetric_param.zero_point, 0);
-        
+
         // Test asymmetric quantization
         let asymmetric_config = QuantizationConfig {
             symmetric: false,
             ..Default::default()
         };
         let asymmetric_quantizer = Quantizer::new(asymmetric_config);
-        
-        let asymmetric_param = asymmetric_quantizer.calculate_quantization_params(&values).unwrap();
+
+        let asymmetric_param = asymmetric_quantizer
+            .calculate_quantization_params(&values)
+            .unwrap();
         assert!(asymmetric_param.zero_point >= 0 && asymmetric_param.zero_point <= 255);
     }
 
@@ -558,16 +595,23 @@ mod tests {
     fn test_quantize_dequantize_roundtrip() {
         let config = QuantizationConfig::default();
         let quantizer = Quantizer::new(config);
-        
+
         let original_values = vec![0.0, 0.5, 1.0, -0.5, -1.0];
-        let param = quantizer.calculate_quantization_params(&original_values).unwrap();
-        
+        let param = quantizer
+            .calculate_quantization_params(&original_values)
+            .unwrap();
+
         let quantized = quantizer.quantize_values_int8(&original_values, &param);
         let dequantized = quantizer.dequantize_values_int8(&quantized, &param);
-        
+
         // Check that dequantized values are reasonably close to originals
         for (orig, deq) in original_values.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.1, "Original: {}, Dequantized: {}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.1,
+                "Original: {}, Dequantized: {}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -575,7 +619,7 @@ mod tests {
     fn test_full_int8_quantization() {
         let config = QuantizationConfig::default();
         let quantizer = Quantizer::new(config);
-        
+
         // Create a test model
         let model_info = create_test_model_info();
         let model_data = crate::model::ModelData::Raw(vec![0u8; 1000]);
@@ -585,17 +629,17 @@ mod tests {
         };
 
         let quantized_model = quantizer.quantize_int8(&model).unwrap();
-        
+
         // Verify quantization results
-        assert!(quantized_model.layers.len() > 0);
+        assert!(!quantized_model.layers.is_empty());
         assert!(quantized_model.compression_ratio() > 0.5); // Should achieve significant compression
         assert!(quantized_model.accuracy_loss < 10.0); // Should be reasonable accuracy loss
-        
+
         // Test statistics
         let stats = quantized_model.get_stats();
         assert!(stats.compression_ratio > 0.0);
         assert!(stats.layers_quantized > 0);
-        
+
         // Test layer breakdown
         let breakdown = quantized_model.get_layer_breakdown();
         assert_eq!(breakdown.len(), quantized_model.layers.len());

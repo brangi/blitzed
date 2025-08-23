@@ -14,11 +14,11 @@
 
 //! Target hardware abstraction and optimization
 
-pub mod esp32;
 pub mod arduino;
-pub mod stm32;
+pub mod esp32;
 pub mod mobile;
 pub mod raspberry_pi;
+pub mod stm32;
 
 use crate::{BlitzedError, Result};
 use serde::{Deserialize, Serialize};
@@ -46,14 +46,14 @@ pub struct HardwareConstraints {
 pub trait HardwareTarget {
     /// Get hardware constraints for this target
     fn constraints(&self) -> &HardwareConstraints;
-    
+
     /// Get target name
     fn name(&self) -> &str;
-    
+
     /// Check if model fits on this target
     fn check_compatibility(&self, model_size: usize, memory_usage: usize) -> Result<()> {
         let constraints = self.constraints();
-        
+
         if model_size > constraints.storage_limit {
             return Err(BlitzedError::HardwareConstraint {
                 constraint: format!(
@@ -63,7 +63,7 @@ pub trait HardwareTarget {
                 ),
             });
         }
-        
+
         if memory_usage > constraints.memory_limit {
             return Err(BlitzedError::HardwareConstraint {
                 constraint: format!(
@@ -73,10 +73,10 @@ pub trait HardwareTarget {
                 ),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Get recommended optimization strategy
     fn optimization_strategy(&self) -> OptimizationStrategy;
 }
@@ -101,29 +101,33 @@ impl TargetRegistry {
         let mut registry = Self {
             targets: std::collections::HashMap::new(),
         };
-        
+
         // Register built-in targets
         registry.register_target("esp32", Box::new(esp32::Esp32Target::new()));
         registry.register_target("arduino", Box::new(arduino::ArduinoTarget::new()));
         registry.register_target("stm32", Box::new(stm32::Stm32Target::new()));
         registry.register_target("mobile", Box::new(mobile::MobileTarget::new()));
-        registry.register_target("raspberry_pi", Box::new(raspberry_pi::RaspberryPiTarget::new()));
-        
+        registry.register_target(
+            "raspberry_pi",
+            Box::new(raspberry_pi::RaspberryPiTarget::new()),
+        );
+
         registry
     }
-    
+
     pub fn register_target(&mut self, name: &str, target: Box<dyn HardwareTarget>) {
         self.targets.insert(name.to_string(), target);
     }
-    
+
     pub fn get_target(&self, name: &str) -> Result<&dyn HardwareTarget> {
-        self.targets.get(name)
+        self.targets
+            .get(name)
             .map(|t| t.as_ref())
             .ok_or_else(|| BlitzedError::UnsupportedTarget {
                 target: name.to_string(),
             })
     }
-    
+
     pub fn list_targets(&self) -> Vec<&str> {
         self.targets.keys().map(|s| s.as_str()).collect()
     }

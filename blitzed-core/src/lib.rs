@@ -22,19 +22,19 @@
 //! - Cross-platform model conversion and deployment
 //! - Performance profiling and accuracy validation
 
+pub mod codegen;
+pub mod config;
+pub mod converters;
 pub mod error;
 pub mod model;
 pub mod optimization;
-pub mod converters;
-pub mod targets;
-pub mod codegen;
-pub mod config;
 pub mod profiler;
+pub mod targets;
 
+pub use config::Config;
 pub use error::{BlitzedError, Result};
 pub use model::{Model, ModelFormat, ModelInfo};
 pub use optimization::{OptimizationConfig, Optimizer};
-pub use config::Config;
 
 /// Core version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -58,6 +58,6 @@ mod tests {
 
     #[test]
     fn test_version() {
-        assert!(!VERSION.is_empty());
+        assert_eq!(VERSION, "0.1.0");
     }
 }

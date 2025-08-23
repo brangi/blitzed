@@ -14,24 +14,28 @@
 
 //! Optimization algorithms and techniques for edge AI deployment
 
-pub mod quantization;
-pub mod pruning;
 pub mod distillation;
 pub mod optimizer;
+pub mod pruning;
+pub mod quantization;
 
-pub use optimizer::{Optimizer, OptimizationConfig, OptimizationResult};
+pub use optimizer::{OptimizationConfig, OptimizationResult, Optimizer};
 pub use quantization::{QuantizationConfig, QuantizationType, Quantizer};
 
 /// Trait for all optimization techniques
 pub trait OptimizationTechnique {
     type Config;
     type Output;
-    
+
     /// Apply the optimization to a model
     fn optimize(&self, model: &crate::Model, config: &Self::Config) -> crate::Result<Self::Output>;
-    
+
     /// Estimate the impact of optimization
-    fn estimate_impact(&self, model: &crate::Model, config: &Self::Config) -> crate::Result<OptimizationImpact>;
+    fn estimate_impact(
+        &self,
+        model: &crate::Model,
+        config: &Self::Config,
+    ) -> crate::Result<OptimizationImpact>;
 }
 
 /// Impact estimation for optimization techniques
@@ -54,7 +58,7 @@ impl OptimizationImpact {
         let speed_improvement = impacts.iter().map(|i| i.speed_improvement).product();
         let accuracy_loss = impacts.iter().map(|i| i.accuracy_loss).sum();
         let memory_reduction = impacts.iter().map(|i| i.memory_reduction).product();
-        
+
         Self {
             size_reduction,
             speed_improvement,

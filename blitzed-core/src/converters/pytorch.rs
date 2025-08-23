@@ -14,8 +14,8 @@
 
 //! PyTorch model converter
 
-use crate::{BlitzedError, Model, Result};
 use super::ModelConverter;
+use crate::{BlitzedError, Model, Result};
 use std::path::Path;
 
 /// PyTorch model converter
@@ -37,7 +37,9 @@ impl ModelConverter for PyTorchConverter {
 
     fn save_model<P: AsRef<Path>>(&self, _model: &Model, _path: P) -> Result<()> {
         // TODO: Implement PyTorch model saving
-        Err(BlitzedError::Internal("PyTorch saving not implemented".to_string()))
+        Err(BlitzedError::Internal(
+            "PyTorch saving not implemented".to_string(),
+        ))
     }
 
     fn supported_extensions(&self) -> &'static [&'static str] {

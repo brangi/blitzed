@@ -14,8 +14,8 @@
 
 //! Pruning algorithms for neural network sparsification
 
+use super::{OptimizationImpact, OptimizationTechnique};
 use crate::{BlitzedError, Model, Result};
-use super::{OptimizationTechnique, OptimizationImpact};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for pruning optimization
@@ -75,7 +75,11 @@ impl OptimizationTechnique for Pruner {
         })
     }
 
-    fn estimate_impact(&self, _model: &Model, _config: &Self::Config) -> Result<OptimizationImpact> {
+    fn estimate_impact(
+        &self,
+        _model: &Model,
+        _config: &Self::Config,
+    ) -> Result<OptimizationImpact> {
         // Rough estimates based on target sparsity
         let sparsity_reduction = self.config.target_sparsity * 0.8; // Conservative estimate
         Ok(OptimizationImpact {

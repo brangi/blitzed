@@ -14,8 +14,8 @@
 
 //! Main optimizer orchestrating multiple optimization techniques
 
-use crate::{BlitzedError, Model, Result, Config};
-use super::{OptimizationTechnique, OptimizationImpact, Quantizer, QuantizationConfig};
+use super::{OptimizationImpact, OptimizationTechnique, QuantizationConfig, Quantizer};
+use crate::{BlitzedError, Config, Model, Result};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the optimization pipeline
@@ -96,8 +96,11 @@ impl Optimizer {
     pub fn optimize(&self, model: &Model) -> Result<OptimizationResult> {
         let start_time = std::time::Instant::now();
         let original_size = model.info().model_size_bytes;
-        
-        log::info!("Starting optimization for model with size {} bytes", original_size);
+
+        log::info!(
+            "Starting optimization for model with size {} bytes",
+            original_size
+        );
 
         // Check hardware constraints
         model.check_memory_constraints(self.config.hardware.memory_limit)?;
@@ -114,18 +117,24 @@ impl Optimizer {
             log::info!("Applying quantization optimization");
             let quantizer = Quantizer::new(quant_config.clone());
             let impact = quantizer.estimate_impact(model, quant_config)?;
-            
+
             // Check if this optimization is beneficial
             if impact.accuracy_loss <= optimization_config.max_accuracy_loss {
                 current_size = (current_size as f32 * (1.0 - impact.size_reduction)) as usize;
                 total_accuracy_loss += impact.accuracy_loss;
                 total_speedup *= impact.speed_improvement;
                 techniques_applied.push("INT8 Quantization".to_string());
-                
-                log::info!("Quantization applied: {}% size reduction, {:.1}% accuracy loss", 
-                          impact.size_reduction * 100.0, impact.accuracy_loss);
+
+                log::info!(
+                    "Quantization applied: {}% size reduction, {:.1}% accuracy loss",
+                    impact.size_reduction * 100.0,
+                    impact.accuracy_loss
+                );
             } else {
-                log::warn!("Skipping quantization: accuracy loss too high ({:.1}%)", impact.accuracy_loss);
+                log::warn!(
+                    "Skipping quantization: accuracy loss too high ({:.1}%)",
+                    impact.accuracy_loss
+                );
             }
         }
 
@@ -233,19 +242,28 @@ impl Optimizer {
         // Size-based recommendations
         let size_mb = model.info().model_size_bytes as f32 / (1024.0 * 1024.0);
         if size_mb > 10.0 {
-            recommendations.push("Large model detected - consider quantization and pruning".to_string());
+            recommendations
+                .push("Large model detected - consider quantization and pruning".to_string());
         }
 
         // Hardware-specific recommendations
         match self.config.hardware.target.as_str() {
             "arduino" => {
-                recommendations.push("Arduino target: Use INT8 quantization and aggressive pruning".to_string());
+                recommendations.push(
+                    "Arduino target: Use INT8 quantization and aggressive pruning".to_string(),
+                );
             }
             "esp32" => {
-                recommendations.push("ESP32 target: INT8 quantization recommended for optimal performance".to_string());
+                recommendations.push(
+                    "ESP32 target: INT8 quantization recommended for optimal performance"
+                        .to_string(),
+                );
             }
             "mobile" => {
-                recommendations.push("Mobile target: Consider mixed precision for best accuracy/performance balance".to_string());
+                recommendations.push(
+                    "Mobile target: Consider mixed precision for best accuracy/performance balance"
+                        .to_string(),
+                );
             }
             _ => {}
         }
@@ -261,7 +279,7 @@ impl Optimizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ModelInfo, ModelFormat, ModelData};
+    use crate::model::{ModelData, ModelFormat, ModelInfo};
 
     fn create_test_model() -> Model {
         let info = ModelInfo {
@@ -273,7 +291,7 @@ mod tests {
             operations_count: 500000,
             layers: vec![], // Empty for test
         };
-        
+
         Model {
             info,
             data: ModelData::Raw(vec![0u8; 1000]),
@@ -308,7 +326,7 @@ mod tests {
     fn test_optimizer_creation() {
         let config = Config::default();
         let optimizer = Optimizer::new(config);
-        
+
         // Should create without errors
         assert_eq!(optimizer.config.optimization.max_accuracy_loss, 5.0);
     }
@@ -328,7 +346,7 @@ mod tests {
     fn test_recommendations() {
         let mut config = Config::default();
         config.hardware.target = "esp32".to_string();
-        
+
         let optimizer = Optimizer::new(config);
         let model = create_test_model();
 

@@ -14,8 +14,8 @@
 
 //! TensorFlow model converter
 
-use crate::{BlitzedError, Model, Result};
 use super::ModelConverter;
+use crate::{BlitzedError, Model, Result};
 use std::path::Path;
 
 /// TensorFlow model converter
@@ -37,7 +37,9 @@ impl ModelConverter for TensorFlowConverter {
 
     fn save_model<P: AsRef<Path>>(&self, _model: &Model, _path: P) -> Result<()> {
         // TODO: Implement TensorFlow model saving
-        Err(BlitzedError::Internal("TensorFlow saving not implemented".to_string()))
+        Err(BlitzedError::Internal(
+            "TensorFlow saving not implemented".to_string(),
+        ))
     }
 
     fn supported_extensions(&self) -> &'static [&'static str] {

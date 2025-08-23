@@ -25,10 +25,10 @@ use std::path::Path;
 pub trait ModelConverter {
     /// Load model from file path
     fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<Model>;
-    
+
     /// Save model to file path
     fn save_model<P: AsRef<Path>>(&self, model: &Model, path: P) -> Result<()>;
-    
+
     /// Get supported file extensions
     fn supported_extensions(&self) -> &'static [&'static str];
 }
@@ -51,7 +51,8 @@ impl UniversalConverter {
 
     pub fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<Model> {
         let path = path.as_ref();
-        let extension = path.extension()
+        let extension = path
+            .extension()
             .and_then(|ext| ext.to_str())
             .ok_or_else(|| BlitzedError::UnsupportedFormat {
                 format: "unknown".to_string(),
