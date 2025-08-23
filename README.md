@@ -50,12 +50,6 @@ cargo test
 # See blitzed-py/ directory for current implementation status
 ```
 
-## Test Status
-
-**Local Development**: 36 tests passing (as of latest commit)
-
-**CI/CD Status**: See GitHub Actions for current build and test results across platforms.
-
 ---
 
 **Author:** Gibran Rodriguez <brangi000@gmail.com>
