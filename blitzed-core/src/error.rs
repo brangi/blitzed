@@ -62,6 +62,7 @@ pub enum BlitzedError {
     Internal(String),
 }
 
+#[cfg(feature = "onnx")]
 impl From<ort::Error> for BlitzedError {
     fn from(err: ort::Error) -> Self {
         BlitzedError::OnnxRuntime(err.to_string())
