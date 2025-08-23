@@ -2,8 +2,10 @@
 
 <div align="center">
 
+[![CI](https://github.com/brangirod/blitzed/workflows/CI/badge.svg)](https://github.com/brangirod/blitzed/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/brangirod/blitzed#license)
 [![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://forge.rust-lang.org/)
+[![codecov](https://codecov.io/gh/brangirod/blitzed/branch/main/graph/badge.svg)](https://codecov.io/gh/brangirod/blitzed)
 
 **High-performance edge AI optimization framework for deploying machine learning models on edge devices.**
 
@@ -49,6 +51,15 @@ cargo test
 # Python bindings are in development
 # See blitzed-py/ directory for current implementation status
 ```
+
+## CI Status & Test Results
+
+| Build Status | Coverage | Tests | Security Audit |
+|--------------|----------|--------|----------------|
+| [![CI](https://github.com/brangirod/blitzed/workflows/CI/badge.svg)](https://github.com/brangirod/blitzed/actions/workflows/ci.yml) | [![codecov](https://codecov.io/gh/brangirod/blitzed/branch/main/graph/badge.svg)](https://codecov.io/gh/brangirod/blitzed) | ![Tests](https://img.shields.io/github/actions/workflow/status/brangirod/blitzed/ci.yml?label=36%20tests) | ![Security](https://img.shields.io/github/actions/workflow/status/brangirod/blitzed/ci.yml?label=security%20audit) |
+
+**Test Run:**
+[View detailed test results →](https://github.com/brangirod/blitzed/actions/workflows/ci.yml)
 
 ---
 
