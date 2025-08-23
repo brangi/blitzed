@@ -17,6 +17,8 @@
 //! This crate provides PyO3-based Python bindings for the Blitzed edge AI
 //! optimization framework, exposing core Rust functionality to Python.
 
+#![allow(clippy::useless_conversion)] // PyO3 type aliases trigger false positives
+
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::path::PathBuf;
