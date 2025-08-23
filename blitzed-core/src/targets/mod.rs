@@ -18,6 +18,7 @@ pub mod esp32;
 pub mod arduino;
 pub mod stm32;
 pub mod mobile;
+pub mod raspberry_pi;
 
 use crate::{BlitzedError, Result};
 use serde::{Deserialize, Serialize};
@@ -106,6 +107,7 @@ impl TargetRegistry {
         registry.register_target("arduino", Box::new(arduino::ArduinoTarget::new()));
         registry.register_target("stm32", Box::new(stm32::Stm32Target::new()));
         registry.register_target("mobile", Box::new(mobile::MobileTarget::new()));
+        registry.register_target("raspberry_pi", Box::new(raspberry_pi::RaspberryPiTarget::new()));
         
         registry
     }

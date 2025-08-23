@@ -17,6 +17,7 @@
 pub mod arduino;
 pub mod esp32;
 pub mod c;
+pub mod raspberry_pi;
 
 use crate::{Model, Result, BlitzedError};
 use std::path::Path;
@@ -63,6 +64,7 @@ impl UniversalCodeGenerator {
         generator.register("arduino", Box::new(arduino::ArduinoCodeGen::new()));
         generator.register("esp32", Box::new(esp32::Esp32CodeGen::new()));
         generator.register("c", Box::new(c::CCodeGen::new()));
+        generator.register("raspberry_pi", Box::new(raspberry_pi::RaspberryPiCodeGen::new()));
         
         generator
     }
