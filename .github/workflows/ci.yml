@@ -122,20 +122,8 @@ jobs:
         toolchain: stable
 
     - name: Run benchmarks
-      run: cargo bench --all-features -- --output-format json | tee benchmark_results.json
+      run: cargo bench --all-features
       continue-on-error: true
-
-    - name: Store benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
-      if: github.ref == 'refs/heads/main'
-      with:
-        tool: 'cargo'
-        output-file-path: benchmark_results.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
-        comment-on-alert: true
-        alert-threshold: '200%'
-        fail-on-alert: true
 
   integration:
     name: Integration Tests

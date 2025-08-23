@@ -52,7 +52,7 @@ fn load_model(path: String) -> PyResult<Py<PyDict>> {
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         let info = model.info();
 
         dict.set_item("format", format!("{:?}", info.format))?;
@@ -61,8 +61,8 @@ fn load_model(path: String) -> PyResult<Py<PyDict>> {
         dict.set_item("operations_count", info.operations_count)?;
 
         // Convert shapes to Python lists
-        let input_shapes = PyList::new_bound(py, &info.input_shapes);
-        let output_shapes = PyList::new_bound(py, &info.output_shapes);
+        let input_shapes = PyList::new(py, &info.input_shapes)?;
+        let output_shapes = PyList::new(py, &info.output_shapes)?;
         dict.set_item("input_shapes", input_shapes)?;
         dict.set_item("output_shapes", output_shapes)?;
 
@@ -160,7 +160,7 @@ fn estimate_quantization_impact(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
         dict.set_item("accuracy_loss", impact.accuracy_loss)?;
@@ -198,7 +198,7 @@ fn optimize_model(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("original_size", result.original_size)?;
         dict.set_item("optimized_size", result.optimized_size)?;
         dict.set_item("compression_ratio", result.compression_ratio)?;
@@ -206,7 +206,7 @@ fn optimize_model(
         dict.set_item("estimated_speedup", result.estimated_speedup)?;
         dict.set_item("optimization_time_ms", result.optimization_time_ms)?;
 
-        let techniques = PyList::new_bound(py, &result.techniques_applied);
+        let techniques = PyList::new(py, &result.techniques_applied)?;
         dict.set_item("techniques_applied", techniques)?;
 
         Ok(dict.into())
@@ -240,7 +240,7 @@ fn estimate_optimization_impact(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
         dict.set_item("accuracy_loss", impact.accuracy_loss)?;
@@ -290,7 +290,7 @@ fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("model_size_bytes", model.info().model_size_bytes)?;
         dict.set_item("estimated_memory_usage", metrics.memory_usage_bytes)?;
         dict.set_item("estimated_inference_time_ms", metrics.inference_time_ms)?;
@@ -317,7 +317,7 @@ fn generate_deployment_code(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Python::with_gil(|py| {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("implementation_file", generated.implementation_file)?;
 
         if let Some(header) = generated.header_file {
@@ -332,7 +332,7 @@ fn generate_deployment_code(
             dict.set_item("build_config", build_config)?;
         }
 
-        let deps = PyList::new_bound(py, &generated.dependencies);
+        let deps = PyList::new(py, &generated.dependencies)?;
         dict.set_item("dependencies", deps)?;
 
         Ok(dict.into())
