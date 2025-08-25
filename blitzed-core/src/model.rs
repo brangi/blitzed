@@ -200,7 +200,7 @@ impl Model {
     #[cfg(feature = "onnx")]
     fn analyze_onnx_graph(session: &Session) -> Result<ModelAnalysis> {
         use crate::onnx_analyzer::OnnxGraphAnalyzer;
-        
+
         let mut analyzer = OnnxGraphAnalyzer::new();
         let mut layers = Vec::new();
 
@@ -208,19 +208,29 @@ impl Model {
         let _metadata = session.metadata();
 
         // Analyze inputs and determine model type
-        let input_shapes: Vec<Vec<i64>> = session.inputs.iter().enumerate().map(|(i, _input)| {
-            match i {
-                0 => vec![1, 3, 224, 224], // Typical image input
-                _ => vec![1, 128],         // Other inputs
-            }
-        }).collect();
+        let input_shapes: Vec<Vec<i64>> = session
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(i, _input)| {
+                match i {
+                    0 => vec![1, 3, 224, 224], // Typical image input
+                    _ => vec![1, 128],         // Other inputs
+                }
+            })
+            .collect();
 
-        let output_shapes: Vec<Vec<i64>> = session.outputs.iter().enumerate().map(|(i, _output)| {
-            match i {
-                0 => vec![1, 1000], // Typical classifier output
-                _ => vec![1, 256],  // Other outputs
-            }
-        }).collect();
+        let output_shapes: Vec<Vec<i64>> = session
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(i, _output)| {
+                match i {
+                    0 => vec![1, 1000], // Typical classifier output
+                    _ => vec![1, 256],  // Other outputs
+                }
+            })
+            .collect();
 
         // Add input layers
         for (i, shape) in input_shapes.iter().enumerate() {
@@ -240,9 +250,9 @@ impl Model {
                 // Looks like a CNN - use the enhanced analyzer
                 analyzer.analyze_sample_cnn(input_shape.clone())?;
                 let (analyzed_layers, total_params, total_flops) = analyzer.get_results();
-                
+
                 layers.extend(analyzed_layers);
-                
+
                 // Add output layers
                 for (i, shape) in output_shapes.iter().enumerate() {
                     layers.push(LayerInfo {
@@ -264,7 +274,8 @@ impl Model {
         }
 
         // Fallback: estimate for non-CNN models
-        let estimated_params = Self::estimate_parameters_from_inputs(&session.inputs, &session.outputs);
+        let estimated_params =
+            Self::estimate_parameters_from_inputs(&session.inputs, &session.outputs);
         let estimated_layers = Self::generate_estimated_layers(&session.inputs, &session.outputs);
         layers.extend(estimated_layers);
 

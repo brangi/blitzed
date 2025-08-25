@@ -61,7 +61,12 @@ impl OnnxOperator {
     }
 
     /// Calculate FLOPs for this operator
-    pub fn calculate_flops(&self, input_shape: &[i64], output_shape: &[i64], params: &OperatorParams) -> u64 {
+    pub fn calculate_flops(
+        &self,
+        input_shape: &[i64],
+        output_shape: &[i64],
+        params: &OperatorParams,
+    ) -> u64 {
         match self {
             Self::Conv => {
                 // FLOPs = 2 * H_out * W_out * C_out * C_in * K_h * K_w
@@ -73,7 +78,7 @@ impl OnnxOperator {
                     let in_channels = input_shape[1] as u64;
                     let kernel_h = params.kernel_size.0 as u64;
                     let kernel_w = params.kernel_size.1 as u64;
-                    
+
                     batch * 2 * out_h * out_w * out_channels * in_channels * kernel_h * kernel_w
                 } else {
                     0
@@ -85,7 +90,7 @@ impl OnnxOperator {
                     let batch = output_shape[0] as u64;
                     let in_features = input_shape[input_shape.len() - 1] as u64;
                     let out_features = output_shape[output_shape.len() - 1] as u64;
-                    
+
                     batch * 2 * in_features * out_features
                 } else {
                     0
@@ -124,7 +129,12 @@ impl OnnxOperator {
     }
 
     /// Calculate parameter count for this operator
-    pub fn calculate_params(&self, input_shape: &[i64], output_shape: &[i64], params: &OperatorParams) -> usize {
+    pub fn calculate_params(
+        &self,
+        input_shape: &[i64],
+        output_shape: &[i64],
+        params: &OperatorParams,
+    ) -> usize {
         match self {
             Self::Conv => {
                 if output_shape.len() >= 4 && input_shape.len() >= 4 {
@@ -132,7 +142,7 @@ impl OnnxOperator {
                     let in_channels = input_shape[1] as usize;
                     let kernel_h = params.kernel_size.0 as usize;
                     let kernel_w = params.kernel_size.1 as usize;
-                    
+
                     // Weights + bias
                     (out_channels * in_channels * kernel_h * kernel_w) + out_channels
                 } else {
@@ -143,7 +153,7 @@ impl OnnxOperator {
                 if output_shape.len() >= 2 && input_shape.len() >= 2 {
                     let in_features = input_shape[input_shape.len() - 1] as usize;
                     let out_features = output_shape[output_shape.len() - 1] as usize;
-                    
+
                     // Weights + bias
                     (in_features * out_features) + out_features
                 } else {
@@ -396,26 +406,26 @@ mod tests {
     fn test_graph_analyzer_sample_cnn() {
         let mut analyzer = OnnxGraphAnalyzer::new();
         let input_shape = vec![1, 3, 224, 224];
-        
+
         analyzer.analyze_sample_cnn(input_shape).unwrap();
-        
+
         let (layers, total_params, total_flops) = analyzer.get_results();
-        
+
         // Should have 8 layers
         assert_eq!(layers.len(), 8);
-        
+
         // Check first layer is Conv1
         assert_eq!(layers[0].name, "conv1");
         assert_eq!(layers[0].layer_type, "Conv");
-        
+
         // Check last layer is FC
         assert_eq!(layers[7].name, "fc");
         assert_eq!(layers[7].layer_type, "Linear");
-        
+
         // Should have reasonable parameter count
         assert!(total_params > 100_000); // At least 100K params
         assert!(total_params < 10_000_000); // Less than 10M params
-        
+
         // Should have reasonable FLOPs
         assert!(total_flops > 1_000_000); // At least 1M FLOPs
     }
