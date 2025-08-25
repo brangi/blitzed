@@ -39,7 +39,7 @@ pub enum OnnxOperator {
 
 impl OnnxOperator {
     /// Parse operator from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_op_string(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "conv" | "conv2d" | "convolution" => Some(Self::Conv),
             "gemm" | "linear" | "matmul" => Some(Self::Linear),
@@ -203,6 +203,12 @@ pub struct OnnxGraphAnalyzer {
     total_flops: u64,
 }
 
+impl Default for OnnxGraphAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OnnxGraphAnalyzer {
     pub fn new() -> Self {
         Self {
@@ -341,11 +347,11 @@ mod tests {
 
     #[test]
     fn test_operator_parsing() {
-        assert_eq!(OnnxOperator::from_str("Conv"), Some(OnnxOperator::Conv));
-        assert_eq!(OnnxOperator::from_str("conv2d"), Some(OnnxOperator::Conv));
-        assert_eq!(OnnxOperator::from_str("ReLU"), Some(OnnxOperator::ReLU));
-        assert_eq!(OnnxOperator::from_str("gemm"), Some(OnnxOperator::Linear));
-        assert_eq!(OnnxOperator::from_str("unknown"), None);
+        assert_eq!(OnnxOperator::from_op_string("Conv"), Some(OnnxOperator::Conv));
+        assert_eq!(OnnxOperator::from_op_string("conv2d"), Some(OnnxOperator::Conv));
+        assert_eq!(OnnxOperator::from_op_string("ReLU"), Some(OnnxOperator::ReLU));
+        assert_eq!(OnnxOperator::from_op_string("gemm"), Some(OnnxOperator::Linear));
+        assert_eq!(OnnxOperator::from_op_string("unknown"), None);
     }
 
     #[test]

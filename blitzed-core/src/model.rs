@@ -536,8 +536,8 @@ mod tests {
 
         let estimated_memory = model.estimate_memory_usage();
         // Model size + input tensor + output tensor + overhead
-        // 4MB + (1*3*224*224*4) + (1*1000*4) + 25% overhead
-        let expected = 4_000_000 + (1 * 3 * 224 * 224 * 4) + (1 * 1000 * 4);
+        // 4MB + (3*224*224*4) + (1000*4) + 25% overhead
+        let expected = 4_000_000 + (3 * 224 * 224 * 4) + (1000 * 4);
         let expected_with_overhead = expected + (expected / 4);
         assert_eq!(estimated_memory, expected_with_overhead);
     }
