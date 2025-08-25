@@ -27,6 +27,7 @@ pub mod config;
 pub mod converters;
 pub mod error;
 pub mod model;
+pub mod onnx_analyzer;
 pub mod optimization;
 pub mod profiler;
 pub mod targets;
