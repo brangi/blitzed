@@ -347,10 +347,22 @@ mod tests {
 
     #[test]
     fn test_operator_parsing() {
-        assert_eq!(OnnxOperator::from_op_string("Conv"), Some(OnnxOperator::Conv));
-        assert_eq!(OnnxOperator::from_op_string("conv2d"), Some(OnnxOperator::Conv));
-        assert_eq!(OnnxOperator::from_op_string("ReLU"), Some(OnnxOperator::ReLU));
-        assert_eq!(OnnxOperator::from_op_string("gemm"), Some(OnnxOperator::Linear));
+        assert_eq!(
+            OnnxOperator::from_op_string("Conv"),
+            Some(OnnxOperator::Conv)
+        );
+        assert_eq!(
+            OnnxOperator::from_op_string("conv2d"),
+            Some(OnnxOperator::Conv)
+        );
+        assert_eq!(
+            OnnxOperator::from_op_string("ReLU"),
+            Some(OnnxOperator::ReLU)
+        );
+        assert_eq!(
+            OnnxOperator::from_op_string("gemm"),
+            Some(OnnxOperator::Linear)
+        );
         assert_eq!(OnnxOperator::from_op_string("unknown"), None);
     }
 
