@@ -15,6 +15,7 @@
 //! Main optimizer orchestrating multiple optimization techniques
 
 use super::{OptimizationImpact, OptimizationTechnique, QuantizationConfig, Quantizer};
+use crate::targets::{HardwareTarget, TargetRegistry};
 use crate::{BlitzedError, Config, Model, Result};
 use serde::{Deserialize, Serialize};
 
@@ -84,12 +85,16 @@ impl OptimizationResult {
 /// Main optimizer orchestrating different optimization techniques
 pub struct Optimizer {
     config: Config,
+    target_registry: TargetRegistry,
 }
 
 impl Optimizer {
     /// Create a new optimizer with configuration
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            target_registry: TargetRegistry::new(),
+        }
     }
 
     /// Optimize a model using configured techniques
@@ -102,8 +107,18 @@ impl Optimizer {
             original_size
         );
 
-        // Check hardware constraints
-        model.check_memory_constraints(self.config.hardware.memory_limit)?;
+        // Get target hardware and check constraints
+        let target = self
+            .target_registry
+            .get_target(&self.config.hardware.target)?;
+        let model_size = model.info().model_size_bytes;
+        let memory_usage = self.estimate_model_memory_usage(model);
+
+        target.check_compatibility(model_size, memory_usage)?;
+        log::info!(
+            "Hardware target '{}' is compatible with model",
+            target.name()
+        );
 
         // Build optimization pipeline
         let optimization_config = self.build_optimization_config();
@@ -183,20 +198,81 @@ impl Optimizer {
         Ok(result)
     }
 
-    /// Build optimization configuration from global config
+    /// Build optimization configuration from global config and hardware target strategy
     fn build_optimization_config(&self) -> OptimizationConfig {
-        OptimizationConfig {
-            quantization: if self.config.optimization.enable_quantization {
-                Some(QuantizationConfig::default())
+        // Get target-specific optimization strategy
+        let strategy = match self
+            .target_registry
+            .get_target(&self.config.hardware.target)
+        {
+            Ok(target) => target.optimization_strategy(),
+            Err(_) => {
+                log::warn!(
+                    "Target '{}' not found, using fallback ESP32 strategy",
+                    self.config.hardware.target
+                );
+                // Use fallback ESP32 strategy for unknown targets
+                let fallback_target = crate::targets::esp32::Esp32Target::new();
+                fallback_target.optimization_strategy()
+            }
+        };
+
+        // Build quantization config based on hardware target strategy
+        let quantization_config =
+            if self.config.optimization.enable_quantization || strategy.aggressive_quantization {
+                let mut config = QuantizationConfig::default();
+
+                // Set precision based on target capability
+                match strategy.target_precision.as_str() {
+                    "int8" => {
+                        config.quantization_type = super::quantization::QuantizationType::Int8;
+                    }
+                    "fp16" => {
+                        // For now, fall back to int8 as we don't have fp16 implementation yet
+                        config.quantization_type = super::quantization::QuantizationType::Int8;
+                    }
+                    _ => {} // Use default
+                }
+
+                Some(config)
             } else {
                 None
-            },
-            pruning_enabled: self.config.optimization.enable_pruning,
+            };
+
+        OptimizationConfig {
+            quantization: quantization_config,
+            pruning_enabled: self.config.optimization.enable_pruning || strategy.enable_pruning,
             distillation_enabled: self.config.optimization.enable_distillation,
             target_compression_ratio: self.config.optimization.target_compression,
             max_accuracy_loss: self.config.optimization.max_accuracy_loss,
-            optimization_passes: 1,
+            optimization_passes: if strategy.aggressive_quantization {
+                2
+            } else {
+                1
+            },
         }
+    }
+
+    /// Estimate model memory usage including activations
+    fn estimate_model_memory_usage(&self, model: &Model) -> usize {
+        let model_info = model.info();
+        let base_memory = model_info.model_size_bytes;
+
+        // Estimate activation memory based on input/output shapes
+        let activation_memory: usize = model_info
+            .input_shapes
+            .iter()
+            .chain(model_info.output_shapes.iter())
+            .map(|shape| {
+                let elements: i64 = shape.iter().product();
+                elements as usize * 4 // Assume FP32 for now
+            })
+            .sum();
+
+        // Add intermediate activations estimate (rough)
+        let intermediate_memory = activation_memory * 2;
+
+        base_memory + activation_memory + intermediate_memory
     }
 
     /// Estimate optimization impact without applying changes
@@ -228,48 +304,82 @@ impl Optimizer {
     /// Get optimization recommendations for the model
     pub fn recommend(&self, model: &Model) -> Result<Vec<String>> {
         let mut recommendations = Vec::new();
-        let memory_usage = model.estimate_memory_usage();
+        let memory_usage = self.estimate_model_memory_usage(model);
 
-        // Memory-based recommendations
-        if memory_usage > self.config.hardware.memory_limit {
+        // Get target hardware for detailed recommendations
+        let target = self
+            .target_registry
+            .get_target(&self.config.hardware.target)?;
+        let constraints = target.constraints();
+
+        // Check compatibility and give recommendations
+        let model_size = model.info().model_size_bytes;
+
+        if target
+            .check_compatibility(model_size, memory_usage)
+            .is_err()
+        {
             recommendations.push(format!(
-                "Model requires {}KB but target has {}KB - consider aggressive quantization",
-                memory_usage / 1024,
-                self.config.hardware.memory_limit / 1024
+                "Model exceeds {} hardware constraints - optimization required",
+                target.name()
             ));
         }
 
-        // Size-based recommendations
-        let size_mb = model.info().model_size_bytes as f32 / (1024.0 * 1024.0);
-        if size_mb > 10.0 {
-            recommendations
-                .push("Large model detected - consider quantization and pruning".to_string());
+        // Memory-based recommendations
+        if memory_usage > constraints.memory_limit {
+            recommendations.push(format!(
+                "Model requires {:.1}MB but {} has {:.1}MB - consider quantization",
+                memory_usage as f32 / (1024.0 * 1024.0),
+                target.name(),
+                constraints.memory_limit as f32 / (1024.0 * 1024.0)
+            ));
         }
 
-        // Hardware-specific recommendations
-        match self.config.hardware.target.as_str() {
-            "arduino" => {
-                recommendations.push(
-                    "Arduino target: Use INT8 quantization and aggressive pruning".to_string(),
-                );
-            }
-            "esp32" => {
-                recommendations.push(
-                    "ESP32 target: INT8 quantization recommended for optimal performance"
-                        .to_string(),
-                );
-            }
-            "mobile" => {
-                recommendations.push(
-                    "Mobile target: Consider mixed precision for best accuracy/performance balance"
-                        .to_string(),
-                );
-            }
-            _ => {}
+        // Get target-specific optimization strategy recommendations
+        let strategy = target.optimization_strategy();
+
+        if strategy.aggressive_quantization {
+            recommendations.push(format!(
+                "{} benefits from aggressive {} quantization",
+                target.name(),
+                strategy.target_precision
+            ));
+        }
+
+        if strategy.enable_pruning {
+            recommendations.push(format!(
+                "Pruning recommended for {} to reduce model complexity",
+                target.name()
+            ));
+        }
+
+        if strategy.memory_optimization {
+            recommendations.push(format!(
+                "Memory optimization critical for {} deployment",
+                target.name()
+            ));
+        }
+
+        if strategy.speed_optimization {
+            recommendations.push(format!(
+                "{} can benefit from speed optimization techniques",
+                target.name()
+            ));
+        }
+
+        // Hardware accelerator recommendations
+        if !constraints.accelerators.is_empty() {
+            recommendations.push(format!(
+                "Hardware accelerators available: {}",
+                constraints.accelerators.join(", ")
+            ));
         }
 
         if recommendations.is_empty() {
-            recommendations.push("Model appears suitable for target hardware".to_string());
+            recommendations.push(format!(
+                "Model appears well-suited for {} deployment",
+                target.name()
+            ));
         }
 
         Ok(recommendations)
@@ -353,5 +463,72 @@ mod tests {
         let recommendations = optimizer.recommend(&model).unwrap();
         assert!(!recommendations.is_empty());
         assert!(recommendations.iter().any(|r| r.contains("ESP32")));
+    }
+
+    #[test]
+    fn test_hardware_target_integration() {
+        let mut config = Config::default();
+        config.hardware.target = "esp32".to_string();
+
+        let optimizer = Optimizer::new(config);
+        let model = create_test_model();
+
+        // Test that hardware target is properly integrated
+        let recommendations = optimizer.recommend(&model).unwrap();
+
+        // Should have ESP32-specific recommendations
+        assert!(recommendations.iter().any(|r| r.contains("ESP32")));
+
+        // Should mention quantization since ESP32 prefers aggressive quantization
+        assert!(recommendations
+            .iter()
+            .any(|r| r.contains("quantization") || r.contains("int8")));
+    }
+
+    #[test]
+    fn test_raspberry_pi_target_integration() {
+        let mut config = Config::default();
+        config.hardware.target = "raspberry_pi".to_string();
+
+        let optimizer = Optimizer::new(config);
+        let model = create_test_model();
+
+        let recommendations = optimizer.recommend(&model).unwrap();
+
+        // Should have Raspberry Pi specific recommendations
+        assert!(recommendations.iter().any(|r| r.contains("Raspberry Pi")));
+
+        // Should mention available accelerators
+        assert!(recommendations
+            .iter()
+            .any(|r| r.contains("accelerator") || r.contains("GPU")));
+    }
+
+    #[test]
+    fn test_optimization_strategy_adaptation() {
+        let mut config = Config::default();
+        config.hardware.target = "esp32".to_string();
+        config.optimization.enable_quantization = false; // Disabled in config
+
+        let optimizer = Optimizer::new(config);
+        let optimization_config = optimizer.build_optimization_config();
+
+        // Should enable quantization anyway because ESP32 needs aggressive quantization
+        assert!(optimization_config.quantization.is_some());
+        assert!(optimization_config.pruning_enabled); // ESP32 should enable pruning
+        assert_eq!(optimization_config.optimization_passes, 2); // Aggressive optimization
+    }
+
+    #[test]
+    fn test_memory_estimation() {
+        let optimizer = Optimizer::new(Config::default());
+        let model = create_test_model();
+
+        let memory_usage = optimizer.estimate_model_memory_usage(&model);
+
+        // Should be model size + activation memory
+        assert!(memory_usage > model.info().model_size_bytes);
+        // Test model is 4MB, with activations should be significantly more
+        assert!(memory_usage > 5_000_000); // Should be at least 5MB
     }
 }
