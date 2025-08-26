@@ -265,9 +265,9 @@ mod tests {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 224, 224]],
             output_shapes: vec![vec![1, 1000]],
-            parameter_count: 1000000,
-            model_size_bytes: 4000000,
-            operations_count: 500000,
+            parameter_count: 1_000_000,
+            model_size_bytes: 4_000_000,
+            operations_count: 500_000,
             layers: vec![], // Empty for test
         };
 
@@ -300,8 +300,8 @@ mod tests {
         let report = ConstraintReport {
             memory_constraint_met: true,
             latency_constraint_met: false,
-            memory_usage: 1000000,
-            memory_limit: 2000000,
+            memory_usage: 1_000_000,
+            memory_limit: 2_000_000,
             latency_ms: 150,
             latency_limit_ms: 100,
             overall_compatible: false,

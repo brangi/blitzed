@@ -22,12 +22,14 @@ use std::path::Path;
 pub struct RaspberryPiCodeGen;
 
 impl RaspberryPiCodeGen {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 }
 
 impl CodeGenerator for RaspberryPiCodeGen {
+    #[allow(clippy::too_many_lines)] // Legitimate implementation for complete platform support
     fn generate(&self, _model: &Model, output_dir: &Path) -> Result<GeneratedCode> {
         std::fs::create_dir_all(output_dir)?;
 
@@ -373,7 +375,7 @@ help:
         })
     }
 
-    fn target_name(&self) -> &str {
+    fn target_name(&self) -> &'static str {
         "raspberry_pi"
     }
 

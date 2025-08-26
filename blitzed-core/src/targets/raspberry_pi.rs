@@ -466,7 +466,7 @@ mod tests {
                 input_shape: vec![1, 3, 224, 224],
                 output_shape: vec![1, 64, 112, 112],
                 parameter_count: 9408,
-                flops: 118013952,
+                flops: 118_013_952,
             }],
         };
 

@@ -106,11 +106,14 @@ impl TargetRegistry {
         registry.register_target("esp32", Box::new(esp32::Esp32Target::new()));
         registry.register_target("arduino", Box::new(arduino::ArduinoTarget::new()));
         registry.register_target("stm32", Box::new(stm32::Stm32Target::new()));
-        registry.register_target("mobile", Box::new(mobile::MobileTarget::new()));
         registry.register_target(
             "raspberry_pi",
             Box::new(raspberry_pi::RaspberryPiTarget::new()),
         );
+        registry.register_target("mobile", Box::new(mobile::MobileTarget::new()));
+
+        // Generic target uses mobile constraints but with conservative optimization
+        registry.register_target("generic", Box::new(mobile::MobileTarget::new()));
 
         registry
     }

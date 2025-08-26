@@ -4,3 +4,4 @@ Cargo.lock
 *.pyc
 __pycache__/
 *.egg-info/
+test_models/

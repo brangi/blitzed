@@ -168,6 +168,16 @@ impl Config {
                 config.hardware.cpu_frequency = 72;
                 config.deployment.target_framework = "bare_metal".to_string();
             }
+            "raspberry_pi" => {
+                config.hardware.target = "raspberry_pi".to_string();
+                config.hardware.memory_limit = 1024 * 1024 * 1024; // 1GB RAM
+                config.hardware.storage_limit = 32 * 1024 * 1024 * 1024; // 32GB SD card
+                config.hardware.cpu_frequency = 1500; // 1.5GHz ARM Cortex-A72
+                config.hardware.use_accelerators = true; // GPU available
+                config.deployment.target_framework = "c".to_string();
+                config.optimization.enable_quantization = true;
+                config.optimization.enable_pruning = true;
+            }
             "mobile" => {
                 config.hardware.target = "mobile".to_string();
                 config.hardware.memory_limit = 100 * 1024 * 1024; // 100MB
@@ -175,6 +185,13 @@ impl Config {
                 config.hardware.cpu_frequency = 2000;
                 config.hardware.use_accelerators = true;
                 config.deployment.target_framework = "tflite".to_string();
+            }
+            "generic" => {
+                config.hardware.target = "generic".to_string();
+                config.hardware.memory_limit = 512 * 1024 * 1024; // 512MB
+                config.hardware.storage_limit = 10 * 1024 * 1024 * 1024; // 10GB
+                config.hardware.cpu_frequency = 1000;
+                config.deployment.target_framework = "c".to_string();
             }
             _ => {
                 return Err(BlitzedError::UnsupportedTarget {

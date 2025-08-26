@@ -314,7 +314,7 @@ impl Model {
             .sum();
 
         // Estimate based on common model patterns
-        let estimated_params = if input_size > 150000 {
+        let estimated_params = if input_size > 150_000 {
             // Large input (e.g., ResNet-50)
             25_000_000 // ~25M parameters
         } else if input_size > 50000 {
@@ -430,6 +430,57 @@ impl Model {
             });
         }
         Ok(())
+    }
+
+    /// Create a test model for unit testing and integration testing
+    pub fn create_test_model() -> Result<Self> {
+        let info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 224, 224]],
+            output_shapes: vec![vec![1, 1000]],
+            parameter_count: 1_000_000,
+            model_size_bytes: 4_000_000, // 4MB
+            operations_count: 500_000,
+            layers: vec![
+                LayerInfo {
+                    name: "conv1".to_string(),
+                    layer_type: "Conv2d".to_string(),
+                    input_shape: vec![1, 3, 224, 224],
+                    output_shape: vec![1, 64, 112, 112],
+                    parameter_count: 9408, // 3*3*3*64 + 64
+                    flops: 118_013_952,    // Approximate
+                },
+                LayerInfo {
+                    name: "relu1".to_string(),
+                    layer_type: "ReLU".to_string(),
+                    input_shape: vec![1, 64, 112, 112],
+                    output_shape: vec![1, 64, 112, 112],
+                    parameter_count: 0,
+                    flops: 0,
+                },
+                LayerInfo {
+                    name: "pool1".to_string(),
+                    layer_type: "MaxPool2d".to_string(),
+                    input_shape: vec![1, 64, 112, 112],
+                    output_shape: vec![1, 64, 56, 56],
+                    parameter_count: 0,
+                    flops: 0,
+                },
+                LayerInfo {
+                    name: "fc1".to_string(),
+                    layer_type: "Linear".to_string(),
+                    input_shape: vec![1, 64 * 56 * 56],
+                    output_shape: vec![1, 1000],
+                    parameter_count: 200_704_000, // 64*56*56*1000 + 1000
+                    flops: 200_704_000,
+                },
+            ],
+        };
+
+        Ok(Model {
+            info,
+            data: ModelData::Raw(vec![0u8; 1000]), // Mock model data
+        })
     }
 }
 

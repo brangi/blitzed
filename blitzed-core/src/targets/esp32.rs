@@ -368,16 +368,16 @@ mod tests {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 32, 32]], // Smaller input for ESP32
             output_shapes: vec![vec![1, 10]],       // Smaller output
-            parameter_count: 50000,                 // Smaller parameter count
-            model_size_bytes: 200000,               // 200KB - fits in ESP32 memory
-            operations_count: 100000,               // Fewer operations
+            parameter_count: 50_000,                // Smaller parameter count
+            model_size_bytes: 200_000,              // 200KB - fits in ESP32 memory
+            operations_count: 100_000,              // Fewer operations
             layers: vec![LayerInfo {
                 name: "conv1".to_string(),
                 layer_type: "Conv2d".to_string(),
                 input_shape: vec![1, 3, 32, 32],
                 output_shape: vec![1, 64, 16, 16],
                 parameter_count: 1728, // 3*3*3*64
-                flops: 1769472,        // Smaller FLOPS
+                flops: 1_769_472,      // Smaller FLOPS
             }],
         };
 
@@ -389,16 +389,16 @@ mod tests {
 
     #[test]
     fn test_esp32_variants() {
-        let esp32 = Esp32Target::with_variant(Esp32Variant::Esp32);
-        let esp32s3 = Esp32Target::with_variant(Esp32Variant::Esp32S3);
-        let esp32c3 = Esp32Target::with_variant(Esp32Variant::Esp32C3);
+        let esp32_base = Esp32Target::with_variant(Esp32Variant::Esp32);
+        let esp32_s3 = Esp32Target::with_variant(Esp32Variant::Esp32S3);
+        let esp32_c3 = Esp32Target::with_variant(Esp32Variant::Esp32C3);
 
-        assert_eq!(esp32.specs().cpu_cores, 2);
-        assert_eq!(esp32s3.specs().sram_size, 512 * 1024);
-        assert!(!esp32c3.specs().has_fpu);
+        assert_eq!(esp32_base.specs().cpu_cores, 2);
+        assert_eq!(esp32_s3.specs().sram_size, 512 * 1024);
+        assert!(!esp32_c3.specs().has_fpu);
 
-        assert!(esp32s3.specs().has_dsp);
-        assert!(!esp32.specs().has_dsp);
+        assert!(esp32_s3.specs().has_dsp);
+        assert!(!esp32_base.specs().has_dsp);
     }
 
     #[test]

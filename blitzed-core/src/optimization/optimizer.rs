@@ -396,9 +396,9 @@ mod tests {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 224, 224]],
             output_shapes: vec![vec![1, 1000]],
-            parameter_count: 1000000,
-            model_size_bytes: 4000000, // 4MB
-            operations_count: 500000,
+            parameter_count: 1_000_000,
+            model_size_bytes: 4_000_000, // 4MB
+            operations_count: 500_000,
             layers: vec![], // Empty for test
         };
 
@@ -419,8 +419,8 @@ mod tests {
     #[test]
     fn test_optimization_result_criteria() {
         let result = OptimizationResult {
-            original_size: 4000000,
-            optimized_size: 1000000,
+            original_size: 4_000_000,
+            optimized_size: 1_000_000,
             compression_ratio: 0.75,
             estimated_accuracy_loss: 2.0,
             estimated_speedup: 2.0,

@@ -22,7 +22,8 @@ use std::path::Path;
 pub struct ArduinoCodeGen;
 
 impl ArduinoCodeGen {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -101,7 +102,7 @@ void runInference() {{
         })
     }
 
-    fn target_name(&self) -> &str {
+    fn target_name(&self) -> &'static str {
         "arduino"
     }
 

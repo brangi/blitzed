@@ -500,9 +500,9 @@ mod tests {
             format: ModelFormat::Onnx,
             input_shapes: vec![vec![1, 3, 224, 224]],
             output_shapes: vec![vec![1, 1000]],
-            parameter_count: 1000000,
-            model_size_bytes: 4000000, // 4MB
-            operations_count: 500000,
+            parameter_count: 1_000_000,
+            model_size_bytes: 4_000_000, // 4MB
+            operations_count: 500_000,
             layers: vec![
                 LayerInfo {
                     name: "conv1".to_string(),
@@ -510,15 +510,15 @@ mod tests {
                     input_shape: vec![1, 3, 224, 224],
                     output_shape: vec![1, 64, 112, 112],
                     parameter_count: 9408, // 3*64*7*7
-                    flops: 118013952,
+                    flops: 118_013_952,
                 },
                 LayerInfo {
                     name: "fc".to_string(),
                     layer_type: "Linear".to_string(),
                     input_shape: vec![1, 2048],
                     output_shape: vec![1, 1000],
-                    parameter_count: 2048000,
-                    flops: 2048000,
+                    parameter_count: 2_048_000,
+                    flops: 2_048_000,
                 },
             ],
         }
@@ -601,8 +601,8 @@ mod tests {
             .calculate_quantization_params(&original_values)
             .unwrap();
 
-        let quantized = quantizer.quantize_values_int8(&original_values, &param);
-        let dequantized = quantizer.dequantize_values_int8(&quantized, &param);
+        let quantized_values = quantizer.quantize_values_int8(&original_values, &param);
+        let dequantized = quantizer.dequantize_values_int8(&quantized_values, &param);
 
         // Check that dequantized values are reasonably close to originals
         for (orig, deq) in original_values.iter().zip(dequantized.iter()) {
@@ -649,7 +649,7 @@ mod tests {
     fn test_compression_ratio() {
         let quantized = QuantizedModel {
             original_model_info: create_test_model_info(),
-            quantized_size: 1000000, // 1MB from 4MB
+            quantized_size: 1_000_000, // 1MB from 4MB
             quantization_params: QuantizationParams {
                 scale: vec![0.1],
                 zero_point: vec![0],
