@@ -22,14 +22,14 @@ use tempfile::TempDir;
 fn test_complete_stm32_workflow() {
     let temp_dir = TempDir::new().unwrap();
     let output_dir = temp_dir.path().join("stm32_test");
-    
+
     // Create a moderate-sized model suitable for STM32
     let model = Model::create_test_model().unwrap();
-    
+
     // Generate STM32 code
     let codegen = blitzed_core::codegen::stm32::Stm32CodeGen::new();
     let result = codegen.generate(&model, &output_dir).unwrap();
-    
+
     // Verify all files were created
     assert!(Path::new(&result.implementation_file).exists());
     assert!(result.header_file.is_some());
@@ -38,7 +38,7 @@ fn test_complete_stm32_workflow() {
     assert!(Path::new(result.example_file.as_ref().unwrap()).exists());
     assert!(result.build_config.is_some());
     assert!(Path::new(result.build_config.as_ref().unwrap()).exists());
-    
+
     // Verify header content
     let header_content = std::fs::read_to_string(result.header_file.unwrap()).unwrap();
     assert!(header_content.contains("STM32_TARGET"));
@@ -46,7 +46,7 @@ fn test_complete_stm32_workflow() {
     assert!(header_content.contains("USE_FPU"));
     assert!(header_content.contains("model_predict"));
     assert!(header_content.contains("model_init"));
-    
+
     // Verify main.c content
     let main_content = std::fs::read_to_string(result.example_file.unwrap()).unwrap();
     assert!(main_content.contains("int main(void)"));
@@ -55,7 +55,7 @@ fn test_complete_stm32_workflow() {
     assert!(main_content.contains("model_predict"));
     assert!(main_content.contains("printf"));
     assert!(main_content.contains("stm32f4xx_hal.h"));
-    
+
     // Verify Makefile content
     let makefile_content = std::fs::read_to_string(result.build_config.unwrap()).unwrap();
     assert!(makefile_content.contains("arm-none-eabi-gcc"));
@@ -63,7 +63,7 @@ fn test_complete_stm32_workflow() {
     assert!(makefile_content.contains("-mfpu=fpv4-sp-d16"));
     assert!(makefile_content.contains("flash:"));
     assert!(makefile_content.contains("st-flash"));
-    
+
     println!("✅ STM32 integration test passed!");
     println!("   Generated files in: {}", output_dir.display());
 }

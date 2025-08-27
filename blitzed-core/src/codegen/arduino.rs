@@ -161,7 +161,7 @@ mod tests {
     fn test_arduino_code_generation() {
         let temp_dir = TempDir::new().unwrap();
         let output_dir = temp_dir.path().join("arduino_output");
-        
+
         let model = create_test_model();
         let codegen = ArduinoCodeGen::new();
         let result = codegen.generate(&model, &output_dir).unwrap();
@@ -170,12 +170,12 @@ mod tests {
         assert!(result.header_file.is_some());
         let header_content = std::fs::read_to_string(result.header_file.as_ref().unwrap()).unwrap();
         assert!(header_content.contains("ARDUINO_TARGET"));
-        
+
         // Should have .ino example file
         assert!(result.example_file.is_some());
         let ino_path = result.example_file.unwrap();
         assert!(ino_path.contains("blitzed_model.ino"));
-        
+
         // Verify .ino file exists and has correct content
         let ino_content = std::fs::read_to_string(&ino_path).unwrap();
         assert!(ino_content.contains("#include \"blitzed_model.h\""));
@@ -183,7 +183,7 @@ mod tests {
         assert!(ino_content.contains("void loop()"));
         assert!(ino_content.contains("model_predict"));
         assert!(ino_content.contains("Serial"));
-        
+
         // No makefile for Arduino (uses IDE)
         assert!(result.build_config.is_none());
     }
@@ -192,14 +192,14 @@ mod tests {
     fn test_arduino_target_compatibility() {
         let model = create_test_model();
         let arduino_target = crate::targets::arduino::ArduinoTarget::new();
-        
+
         // Arduino has very limited memory, should work with tiny models
         let constraints = arduino_target.constraints();
         assert_eq!(constraints.memory_limit, 2 * 1024); // 2KB RAM
         assert_eq!(constraints.storage_limit, 32 * 1024); // 32KB Flash
         assert!(!constraints.has_fpu);
         assert_eq!(constraints.architecture, "AVR");
-        
+
         // Test model should be small enough
         assert!(model.info().model_size_bytes < constraints.storage_limit);
     }
@@ -208,7 +208,7 @@ mod tests {
     fn test_arduino_optimization_strategy() {
         let arduino_target = crate::targets::arduino::ArduinoTarget::new();
         let strategy = arduino_target.optimization_strategy();
-        
+
         // Arduino needs very aggressive optimization
         assert!(strategy.aggressive_quantization);
         assert!(strategy.enable_pruning);
