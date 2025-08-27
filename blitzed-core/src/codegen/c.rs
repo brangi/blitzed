@@ -132,6 +132,12 @@ uint32_t model_get_memory_usage(void);
             "raspberry_pi" => {
                 "#define RPI_TARGET 1\n#define USE_NEON 1\n#define OPTIMIZE_FOR_SPEED 1".to_string()
             }
+            "arduino" => {
+                "#define ARDUINO_TARGET 1\n#define OPTIMIZE_FOR_SIZE 1\n#define USE_PROGMEM 1".to_string()
+            }
+            "stm32" => {
+                "#define STM32_TARGET 1\n#define USE_HAL_DRIVER 1\n#define OPTIMIZE_FOR_SIZE 1\n#define USE_FPU 1".to_string()
+            }
             _ => "#define GENERIC_TARGET 1".to_string(),
         }
     }
@@ -368,6 +374,16 @@ int main() {{
                 "-Wall -Wextra -O3 -std=c99 -DRPI_TARGET -march=armv8-a -mtune=cortex-a72 -mfpu=neon-fp-armv8",
                 "-lm -lrt"
             ),
+            "arduino" => (
+                "avr-gcc",
+                "-Wall -Wextra -Os -std=c99 -DARDUINO_TARGET -mmcu=atmega328p -ffunction-sections -fdata-sections",
+                "-lm"
+            ),
+            "stm32" => (
+                "arm-none-eabi-gcc",
+                "-Wall -Wextra -Os -std=c99 -DSTM32_TARGET -DSTM32F401xE -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -ffunction-sections -fdata-sections",
+                "-lm"
+            ),
             _ => (
                 "gcc",
                 "-Wall -Wextra -O3 -std=c99 -DGENERIC_TARGET",
@@ -428,6 +444,27 @@ monitor:
 
 run-remote: deploy
 	ssh pi@raspberrypi.local ./$(TARGET)"
+                .to_string(),
+            "arduino" => r"upload: $(TARGET).hex
+	avrdude -c arduino -p atmega328p -P /dev/ttyACM0 -b 57600 -U flash:w:$(TARGET).hex:i
+
+$(TARGET).hex: $(TARGET)
+	avr-objcopy -O ihex -R .eeprom $(TARGET) $(TARGET).hex
+
+monitor:
+	screen /dev/ttyACM0 9600"
+                .to_string(),
+            "stm32" => r"flash: $(TARGET).bin
+	st-flash write $(TARGET).bin 0x8000000
+
+$(TARGET).bin: $(TARGET)
+	arm-none-eabi-objcopy -O binary $(TARGET) $(TARGET).bin
+
+debug:
+	arm-none-eabi-gdb $(TARGET)
+
+monitor:
+	screen /dev/ttyUSB0 115200"
                 .to_string(),
             _ => "# No hardware-specific targets".to_string(),
         }

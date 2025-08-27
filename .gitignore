@@ -5,3 +5,4 @@ Cargo.lock
 __pycache__/
 *.egg-info/
 test_models/
+dev_notes.md
