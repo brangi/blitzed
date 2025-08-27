@@ -13,7 +13,7 @@ name = "blitzed_py"
 crate-type = ["cdylib"]
 
 [dependencies]
-blitzed-core = { path = "../blitzed-core" }
+blitzed-core = { path = "../blitzed-core", default-features = false }
 pyo3 = { workspace = true }
 numpy = { workspace = true }
 anyhow = { workspace = true }
@@ -23,6 +23,7 @@ serde_json = { workspace = true }
 [features]
 default = ["onnx", "quantization"]
 onnx = ["blitzed-core/onnx"]
+pytorch = ["blitzed-core/pytorch"]
 quantization = ["blitzed-core/quantization"]
 pruning = ["blitzed-core/pruning"]
 distillation = ["blitzed-core/distillation"]

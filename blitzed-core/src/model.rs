@@ -21,6 +21,9 @@ use std::path::Path;
 #[cfg(feature = "onnx")]
 use ort::session::{Input, Output, Session};
 
+#[cfg(feature = "pytorch")]
+use tch::{CModule, Device, Tensor};
+
 /// Supported model formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelFormat {
@@ -92,6 +95,8 @@ pub struct Model {
 pub enum ModelData {
     #[cfg(feature = "onnx")]
     Onnx(Session),
+    #[cfg(feature = "pytorch")]
+    PyTorch(CModule),
     Raw(Vec<u8>),
 }
 

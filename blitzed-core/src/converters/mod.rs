@@ -74,3 +74,66 @@ impl Default for UniversalConverter {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_universal_converter_creation() {
+        let _converter = UniversalConverter::new();
+        // Should create without errors
+    }
+
+    #[test]
+    fn test_universal_converter_pytorch_routing() {
+        let converter = UniversalConverter::new();
+
+        // Test .pt extension routing
+        let result = converter.load_model("/tmp/test.pt");
+        assert!(result.is_err());
+
+        // Test .pth extension routing
+        let result = converter.load_model("/tmp/test.pth");
+        assert!(result.is_err());
+
+        // Both should fail with the same error type (pytorch feature dependent)
+        #[cfg(not(feature = "pytorch"))]
+        {
+            match converter.load_model("/tmp/test.pt").unwrap_err() {
+                BlitzedError::UnsupportedFormat { format } => {
+                    assert_eq!(format, "PyTorch (feature not enabled)");
+                }
+                _ => panic!("Expected UnsupportedFormat error"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_universal_converter_unsupported_extension() {
+        let converter = UniversalConverter::new();
+
+        let result = converter.load_model("/tmp/test.xyz");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BlitzedError::UnsupportedFormat { format } => {
+                assert_eq!(format, "xyz");
+            }
+            _ => panic!("Expected UnsupportedFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_universal_converter_no_extension() {
+        let converter = UniversalConverter::new();
+
+        let result = converter.load_model("/tmp/test");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BlitzedError::UnsupportedFormat { format } => {
+                assert_eq!(format, "unknown");
+            }
+            _ => panic!("Expected UnsupportedFormat error"),
+        }
+    }
+}
