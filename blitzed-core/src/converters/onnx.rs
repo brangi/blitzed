@@ -25,6 +25,7 @@ use crate::model::{ModelData, ModelFormat, ModelInfo};
 use ort::{session::Session, value::ValueType};
 
 /// Type alias for shape pairs (input shapes, output shapes)
+#[cfg(feature = "onnx")]
 type ShapePair = (Vec<Vec<i64>>, Vec<Vec<i64>>);
 
 /// ONNX model converter
