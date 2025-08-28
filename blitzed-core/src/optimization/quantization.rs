@@ -400,7 +400,7 @@ impl Quantizer {
 
             // Calculate sizes (INT4 = 4 bits = 0.5 bytes per weight)
             let original_size = weight_count * 4; // FP32 = 4 bytes per weight
-            let quantized_size = (weight_count + 1) / 2; // INT4 = 0.5 bytes per weight (rounded up)
+            let quantized_size = weight_count.div_ceil(2); // INT4 = 0.5 bytes per weight (rounded up)
 
             let layer = QuantizedLayer {
                 name: layer_name.to_string(),
@@ -519,7 +519,7 @@ impl Quantizer {
 
                 // Calculate sizes (Binary = 1 bit = 0.125 bytes per weight)
                 let original_size = weight_count * 4; // FP32 = 4 bytes per weight
-                let quantized_size = (weight_count + 7) / 8; // 1 bit per weight (rounded up to bytes)
+                let quantized_size = weight_count.div_ceil(8); // 1 bit per weight (rounded up to bytes)
 
                 let layer = QuantizedLayer {
                     name: layer_name.to_string(),
@@ -681,7 +681,7 @@ impl Quantizer {
                     // INT4: Use existing INT4 quantization
                     let param = self.calculate_quantization_params_int4(&weights)?;
                     let quantized = self.quantize_values_int4(&weights, &param);
-                    (param, quantized, (weight_count + 1) / 2, "INT4")
+                    (param, quantized, weight_count.div_ceil(2), "INT4")
                 }
                 _ => {
                     return Err(BlitzedError::OptimizationFailed {
