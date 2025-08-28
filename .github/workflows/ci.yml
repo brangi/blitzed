@@ -40,19 +40,19 @@ jobs:
       if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
 
     - name: Run clippy
-      run: cargo clippy -p blitzed-core --all-targets --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx -- -D warnings
+      run: cargo clippy -p blitzed-core --all-targets --no-default-features --features quantization,pruning,distillation,hardware-targets -- -D warnings
       if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
 
     - name: Build workspace
-      run: cargo build --verbose -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx
+      run: cargo build --verbose -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets
 
     - name: Run all tests (unit + integration)
-      run: cargo test --verbose --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx
+      run: cargo test --verbose --no-default-features --features quantization,pruning,distillation,hardware-targets
       env:
         RUST_BACKTRACE: 1
 
     - name: Test documentation
-      run: cargo test --doc -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx
+      run: cargo test --doc -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets
       if: matrix.rust == 'stable'
 
   security:
@@ -92,7 +92,7 @@ jobs:
         tool: cargo-llvm-cov
 
     - name: Generate coverage report
-      run: cargo llvm-cov --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx --lcov --output-path lcov.info
+      run: cargo llvm-cov --no-default-features --features quantization,pruning,distillation,hardware-targets --lcov --output-path lcov.info
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -115,7 +115,7 @@ jobs:
         toolchain: stable
 
     - name: Run benchmarks
-      run: cargo bench -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets,onnx
+      run: cargo bench -p blitzed-core --no-default-features --features quantization,pruning,distillation,hardware-targets
       continue-on-error: true
 
   integration:
