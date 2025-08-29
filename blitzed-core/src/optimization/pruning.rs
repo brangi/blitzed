@@ -541,7 +541,7 @@ mod tests {
 
         // Check compression ratio (with ~36% sparsity, expect ~1.56x compression)
         let compression = result.compression_ratio();
-        assert!(compression >= 1.3 && compression <= 1.8);
+        assert!((1.3..=1.8).contains(&compression));
 
         // Check accuracy loss estimation
         assert!(result.accuracy_loss > 0.0 && result.accuracy_loss < 50.0);
@@ -652,7 +652,7 @@ mod tests {
         let result = pruner.prune_magnitude(&model).unwrap();
 
         // Should fall back to simulation
-        assert!(result.layers.len() > 0); // Should create simulated layers
+        assert!(!result.layers.is_empty()); // Should create simulated layers
         assert!(result.sparsity_ratio > 0.0);
 
         // Large model should have multiple simulated layers (ResNet-50 style)

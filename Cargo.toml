@@ -42,6 +42,9 @@ clap = { version = "4.5", features = ["derive"] }
 config = "0.14"
 toml = "0.8"
 
+# Date/time utilities
+chrono = { version = "0.4", features = ["serde"] }
+
 # Testing
 approx = "0.5"
 tempfile = "3.8"

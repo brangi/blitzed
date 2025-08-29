@@ -22,20 +22,26 @@
 //! - Cross-platform model conversion and deployment
 //! - Performance profiling and accuracy validation
 
+pub mod benchmarking;
 pub mod codegen;
 pub mod config;
 pub mod converters;
+pub mod deployment;
 pub mod error;
 pub mod model;
 pub mod onnx_analyzer;
 pub mod optimization;
 pub mod profiler;
 pub mod targets;
+pub mod validation;
 
+pub use benchmarking::suite::BenchmarkSuite;
 pub use config::Config;
+pub use deployment::{DeploymentValidationConfig, HardwareDeploymentValidator};
 pub use error::{BlitzedError, Result};
 pub use model::{Model, ModelFormat, ModelInfo};
 pub use optimization::{OptimizationConfig, Optimizer};
+pub use validation::{CrossFormatValidator, ValidationConfig};
 
 /// Core version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

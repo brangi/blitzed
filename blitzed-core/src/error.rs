@@ -60,6 +60,35 @@ pub enum BlitzedError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    // Benchmarking-specific errors
+    #[error("Model not found: {model}")]
+    ModelNotFound { model: String },
+
+    #[error("Framework not supported: {framework}")]
+    UnsupportedFramework { framework: String },
+
+    #[error("Network error: {message}")]
+    NetworkError { message: String },
+
+    #[error("Conversion failed from {from} to {to}: {error}")]
+    ConversionFailed {
+        from: String,
+        to: String,
+        error: String,
+    },
+
+    #[error("Validation failed: {message}")]
+    ValidationFailed { message: String },
+
+    #[error("System error: {message}")]
+    SystemError { message: String },
+
+    #[error("Report generation error: {message}")]
+    ReportGenerationError { message: String },
+
+    #[error("Invalid configuration: {message}")]
+    InvalidConfiguration { message: String },
 }
 
 #[cfg(feature = "onnx")]

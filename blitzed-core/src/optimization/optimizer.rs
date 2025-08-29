@@ -14,6 +14,8 @@
 
 //! Main optimizer orchestrating multiple optimization techniques
 
+use super::distillation::{DistillationConfig, StudentArchitecture};
+use super::pruning::PruningConfig;
 use super::{OptimizationImpact, OptimizationTechnique, QuantizationConfig, Quantizer};
 use crate::targets::{HardwareTarget, TargetRegistry};
 use crate::{BlitzedError, Config, Model, Result};
@@ -23,22 +25,24 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptimizationConfig {
     pub quantization: Option<QuantizationConfig>,
-    pub pruning_enabled: bool,
-    pub distillation_enabled: bool,
+    pub pruning: Option<PruningConfig>,
+    pub distillation: Option<DistillationConfig>,
     pub target_compression_ratio: f32,
     pub max_accuracy_loss: f32,
     pub optimization_passes: u32,
+    pub calibration_data_samples: usize,
 }
 
 impl Default for OptimizationConfig {
     fn default() -> Self {
         Self {
             quantization: Some(QuantizationConfig::default()),
-            pruning_enabled: false,
-            distillation_enabled: false,
+            pruning: None,
+            distillation: None,
             target_compression_ratio: 0.75,
             max_accuracy_loss: 5.0,
             optimization_passes: 1,
+            calibration_data_samples: 100,
         }
     }
 }
@@ -153,17 +157,7 @@ impl Optimizer {
             }
         }
 
-        // Apply pruning if enabled (placeholder)
-        if optimization_config.pruning_enabled {
-            log::info!("Pruning optimization requested but not yet implemented");
-            // TODO: Implement pruning
-        }
-
-        // Apply distillation if enabled (placeholder)
-        if optimization_config.distillation_enabled {
-            log::info!("Distillation optimization requested but not yet implemented");
-            // TODO: Implement knowledge distillation
-        }
+        // Note: Pruning and distillation are now handled in the unified pipeline above
 
         let optimization_time = start_time.elapsed().as_millis() as u64;
         let compression_ratio = 1.0 - (current_size as f32 / original_size as f32);
@@ -239,16 +233,52 @@ impl Optimizer {
                 None
             };
 
+        // Build pruning configuration if enabled
+        let pruning_config = if self.config.optimization.enable_pruning || strategy.enable_pruning {
+            let config = PruningConfig {
+                target_sparsity: if strategy.aggressive_quantization {
+                    0.6
+                } else {
+                    0.4
+                },
+                structured: strategy.memory_optimization, // Use structured for memory-constrained targets
+                ..Default::default()
+            };
+            Some(config)
+        } else {
+            None
+        };
+
+        // Build distillation configuration if enabled
+        let distillation_config = if self.config.optimization.enable_distillation {
+            let mut config = DistillationConfig::default();
+            // Choose student architecture based on target constraints
+            if strategy.memory_optimization {
+                // Use equivalent of MobileOptimized (ReducedWidth works well for memory-constrained)
+                config.student_architecture = StudentArchitecture::ReducedWidth;
+            } else if strategy.speed_optimization {
+                config.student_architecture = StudentArchitecture::ReducedDepth;
+            }
+            Some(config)
+        } else {
+            None
+        };
+
         OptimizationConfig {
             quantization: quantization_config,
-            pruning_enabled: self.config.optimization.enable_pruning || strategy.enable_pruning,
-            distillation_enabled: self.config.optimization.enable_distillation,
+            pruning: pruning_config,
+            distillation: distillation_config,
             target_compression_ratio: self.config.optimization.target_compression,
             max_accuracy_loss: self.config.optimization.max_accuracy_loss,
             optimization_passes: if strategy.aggressive_quantization {
                 2
             } else {
                 1
+            },
+            calibration_data_samples: if strategy.aggressive_quantization {
+                200
+            } else {
+                100
             },
         }
     }
@@ -515,8 +545,13 @@ mod tests {
 
         // Should enable quantization anyway because ESP32 needs aggressive quantization
         assert!(optimization_config.quantization.is_some());
-        assert!(optimization_config.pruning_enabled); // ESP32 should enable pruning
+        assert!(optimization_config.pruning.is_some()); // ESP32 should enable pruning
         assert_eq!(optimization_config.optimization_passes, 2); // Aggressive optimization
+
+        // Check pruning configuration
+        let pruning_config = optimization_config.pruning.unwrap();
+        assert_eq!(pruning_config.target_sparsity, 0.6); // Aggressive sparsity for ESP32
+        assert!(pruning_config.structured); // ESP32 needs memory optimization
     }
 
     #[test]

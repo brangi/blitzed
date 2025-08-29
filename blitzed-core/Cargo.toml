@@ -37,6 +37,22 @@ env_logger = { workspace = true }
 config = { workspace = true }
 toml = { workspace = true }
 
+# Date/time utilities
+chrono = { workspace = true }
+
+# HTTP client for model downloads
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Stream utilities
+tokio-stream = "0.1"
+futures = "0.3"
+
+# Random number generation
+rand = "0.8"
+
+# Command line interface
+clap = { version = "4.0", features = ["derive"] }
+
 [dev-dependencies]
 approx = { workspace = true }
 tempfile = { workspace = true }
