@@ -180,7 +180,7 @@ impl CrossFormatValidator {
             accuracy_acceptable,
             max_acceptable_loss: self.config.max_accuracy_loss,
             techniques_applied: optimization_result.techniques_applied,
-            cross_format_consistent: None, // TODO: Implement cross-format optimization validation
+            cross_format_consistent: None, // Future: Cross-format optimization validation
         };
 
         if result.accuracy_acceptable {
@@ -516,7 +516,7 @@ impl CrossFormatValidator {
         // Extract the PyTorch model data
         match &model.data {
             ModelData::PyTorch(_module_data) => {
-                // TODO: This would need proper implementation with the actual CModule
+                // SIMULATION: Real PyTorch inference would use CModule here
                 // For now, return simulated outputs based on model structure
                 log::debug!("Running PyTorch inference (simulated)");
                 self.simulate_model_outputs_with_seed(&model.info().output_shapes, inputs, 100)
@@ -548,7 +548,7 @@ impl CrossFormatValidator {
         // Extract the ONNX session data
         match &model.data {
             ModelData::Onnx(_session_data) => {
-                // TODO: This would need proper implementation with the actual Session
+                // SIMULATION: Real ONNX inference would use Session here
                 // For now, return simulated outputs based on model structure
                 log::debug!("Running ONNX inference (simulated)");
                 self.simulate_model_outputs_with_seed(&model.info().output_shapes, inputs, 200)

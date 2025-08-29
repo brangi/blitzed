@@ -40,6 +40,21 @@ pub struct QuantizationConfig {
     pub per_channel: bool,
     pub skip_sensitive_layers: bool,
     pub accuracy_threshold: f32,
+    pub calibration_method: CalibrationMethod,
+    pub percentile_threshold: f32,
+}
+
+/// Methods for calibration dataset collection and analysis
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CalibrationMethod {
+    /// Use min/max values from calibration data
+    MinMax,
+    /// Use percentile-based thresholds (e.g., 0.1% and 99.9%)
+    Percentile,
+    /// Use entropy-based calibration (KL divergence minimization)
+    Entropy,
+    /// Use mean-squared error minimization
+    MSE,
 }
 
 impl Default for QuantizationConfig {
@@ -51,18 +66,444 @@ impl Default for QuantizationConfig {
             per_channel: true,
             skip_sensitive_layers: true,
             accuracy_threshold: 5.0,
+            calibration_method: CalibrationMethod::Percentile,
+            percentile_threshold: 0.01, // 1% and 99% percentiles
         }
     }
+}
+
+/// Calibration dataset for quantization
+#[derive(Debug, Clone)]
+pub struct CalibrationDataset {
+    /// Input tensors for calibration (one per input)
+    pub inputs: Vec<Vec<Vec<f32>>>,
+    /// Expected output tensors (optional, for validation)
+    pub outputs: Option<Vec<Vec<Vec<f32>>>>,
+    /// Metadata about the dataset
+    pub metadata: CalibrationMetadata,
+}
+
+/// Metadata for calibration dataset
+#[derive(Debug, Clone)]
+pub struct CalibrationMetadata {
+    pub sample_count: usize,
+    pub input_shapes: Vec<Vec<usize>>,
+    pub output_shapes: Vec<Vec<usize>>,
+    pub data_source: String,
+    pub creation_time: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Statistics collected from calibration data
+#[derive(Debug, Clone)]
+pub struct CalibrationStats {
+    pub min_values: Vec<f32>,
+    pub max_values: Vec<f32>,
+    pub mean_values: Vec<f32>,
+    pub std_values: Vec<f32>,
+    pub percentile_values: Vec<(f32, f32)>, // (low_percentile, high_percentile)
+    pub histogram_bins: Vec<Vec<usize>>,
+    pub sample_count: usize,
+}
+
+/// Result of calibration analysis
+#[derive(Debug, Clone)]
+pub struct CalibrationResult {
+    pub stats: CalibrationStats,
+    pub recommended_params: Vec<QuantizationParam>,
+    pub quality_score: f32, // 0.0 to 1.0, higher is better
+    pub warnings: Vec<String>,
 }
 
 /// Quantization algorithm implementation
 pub struct Quantizer {
     config: QuantizationConfig,
+    calibration_data: Option<CalibrationDataset>,
 }
 
 impl Quantizer {
     pub fn new(config: QuantizationConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            calibration_data: None,
+        }
+    }
+
+    /// Create quantizer with calibration dataset
+    pub fn with_calibration(
+        config: QuantizationConfig,
+        calibration_data: CalibrationDataset,
+    ) -> Self {
+        Self {
+            config,
+            calibration_data: Some(calibration_data),
+        }
+    }
+
+    /// Set calibration dataset
+    pub fn set_calibration_data(&mut self, calibration_data: CalibrationDataset) {
+        self.calibration_data = Some(calibration_data);
+    }
+
+    /// Create a calibration dataset from input samples
+    pub fn create_calibration_dataset(
+        inputs: Vec<Vec<Vec<f32>>>,
+        input_shapes: Vec<Vec<usize>>,
+        data_source: String,
+    ) -> Result<CalibrationDataset> {
+        if inputs.is_empty() {
+            return Err(BlitzedError::OptimizationFailed {
+                reason: "Cannot create calibration dataset with empty inputs".to_string(),
+            });
+        }
+
+        let sample_count = inputs[0].len();
+
+        // Validate all input tensors have the same number of samples
+        for (i, input_tensor) in inputs.iter().enumerate() {
+            if input_tensor.len() != sample_count {
+                return Err(BlitzedError::OptimizationFailed {
+                    reason: format!(
+                        "Input tensor {} has {} samples, expected {}",
+                        i,
+                        input_tensor.len(),
+                        sample_count
+                    ),
+                });
+            }
+        }
+
+        let metadata = CalibrationMetadata {
+            sample_count,
+            input_shapes,
+            output_shapes: vec![], // Unknown without running inference
+            data_source,
+            creation_time: Some(chrono::Utc::now()),
+        };
+
+        Ok(CalibrationDataset {
+            inputs,
+            outputs: None,
+            metadata,
+        })
+    }
+
+    /// Analyze calibration dataset and compute statistics
+    pub fn analyze_calibration_data(&self) -> Result<CalibrationResult> {
+        let calibration_data =
+            self.calibration_data
+                .as_ref()
+                .ok_or_else(|| BlitzedError::OptimizationFailed {
+                    reason: "No calibration data available for analysis".to_string(),
+                })?;
+
+        log::info!(
+            "Analyzing calibration dataset: {} samples across {} inputs",
+            calibration_data.metadata.sample_count,
+            calibration_data.inputs.len()
+        );
+
+        let mut stats = CalibrationStats {
+            min_values: Vec::new(),
+            max_values: Vec::new(),
+            mean_values: Vec::new(),
+            std_values: Vec::new(),
+            percentile_values: Vec::new(),
+            histogram_bins: Vec::new(),
+            sample_count: calibration_data.metadata.sample_count,
+        };
+
+        let mut recommended_params = Vec::new();
+        let mut warnings = Vec::new();
+        let mut quality_scores = Vec::new();
+
+        // Analyze each input tensor
+        for (tensor_idx, input_tensor) in calibration_data.inputs.iter().enumerate() {
+            log::debug!("Analyzing input tensor {}", tensor_idx);
+
+            // Flatten all samples for this tensor
+            let all_values: Vec<f32> = input_tensor.iter().flatten().copied().collect();
+
+            if all_values.is_empty() {
+                warnings.push(format!("Input tensor {} is empty", tensor_idx));
+                continue;
+            }
+
+            // Calculate basic statistics
+            let min_val = all_values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+            let max_val = all_values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let mean_val = all_values.iter().sum::<f32>() / all_values.len() as f32;
+            let variance = all_values
+                .iter()
+                .map(|&x| (x - mean_val).powi(2))
+                .sum::<f32>()
+                / all_values.len() as f32;
+            let std_val = variance.sqrt();
+
+            stats.min_values.push(min_val);
+            stats.max_values.push(max_val);
+            stats.mean_values.push(mean_val);
+            stats.std_values.push(std_val);
+
+            // Calculate percentiles
+            let mut sorted_values = all_values.clone();
+            sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+            let low_percentile_idx =
+                ((sorted_values.len() - 1) as f32 * self.config.percentile_threshold) as usize;
+            let high_percentile_idx = ((sorted_values.len() - 1) as f32
+                * (1.0 - self.config.percentile_threshold))
+                as usize;
+
+            let low_percentile = sorted_values[low_percentile_idx];
+            let high_percentile = sorted_values[high_percentile_idx];
+
+            stats
+                .percentile_values
+                .push((low_percentile, high_percentile));
+
+            // Create histogram for distribution analysis
+            let histogram = self.create_histogram(&all_values, 256);
+            stats.histogram_bins.push(histogram);
+
+            // Calculate quantization parameters based on calibration method
+            let param = match self.config.calibration_method {
+                CalibrationMethod::MinMax => {
+                    self.calculate_quantization_params_from_range(min_val, max_val)?
+                }
+                CalibrationMethod::Percentile => {
+                    self.calculate_quantization_params_from_range(low_percentile, high_percentile)?
+                }
+                CalibrationMethod::Entropy => {
+                    // For entropy-based calibration, we need to minimize KL divergence
+                    // This is a simplified implementation
+                    self.calculate_quantization_params_entropy(&sorted_values)?
+                }
+                CalibrationMethod::MSE => {
+                    // For MSE-based calibration, minimize reconstruction error
+                    self.calculate_quantization_params_mse(&all_values)?
+                }
+            };
+
+            recommended_params.push(param);
+
+            // Calculate quality score for this tensor
+            let quality_score =
+                self.calculate_calibration_quality(&all_values, min_val, max_val, std_val);
+            quality_scores.push(quality_score);
+
+            // Add warnings for potential issues
+            if (max_val - min_val) < f32::EPSILON {
+                warnings.push(format!("Input tensor {} has constant values", tensor_idx));
+            }
+            if std_val < 0.001 {
+                warnings.push(format!("Input tensor {} has very low variance", tensor_idx));
+            }
+            if quality_score < 0.5 {
+                warnings.push(format!(
+                    "Input tensor {} has poor calibration quality",
+                    tensor_idx
+                ));
+            }
+
+            // Check for insufficient dataset size
+            if all_values.len() < 100 {
+                warnings.push(format!("Input tensor {} has insufficient calibration data ({} samples, recommended: >= 100)", tensor_idx, all_values.len()));
+            }
+        }
+
+        let overall_quality = if quality_scores.is_empty() {
+            0.0
+        } else {
+            quality_scores.iter().sum::<f32>() / quality_scores.len() as f32
+        };
+
+        log::info!(
+            "Calibration analysis complete. Quality score: {:.3}",
+            overall_quality
+        );
+
+        Ok(CalibrationResult {
+            stats,
+            recommended_params,
+            quality_score: overall_quality,
+            warnings,
+        })
+    }
+
+    /// Create histogram for value distribution analysis
+    fn create_histogram(&self, values: &[f32], num_bins: usize) -> Vec<usize> {
+        if values.is_empty() {
+            return vec![0; num_bins];
+        }
+
+        let min_val = values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+        let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+
+        if (max_val - min_val) < f32::EPSILON {
+            // All values are the same
+            let mut histogram = vec![0; num_bins];
+            histogram[0] = values.len();
+            return histogram;
+        }
+
+        let bin_width = (max_val - min_val) / num_bins as f32;
+        let mut histogram = vec![0; num_bins];
+
+        for &value in values {
+            let bin_idx = ((value - min_val) / bin_width) as usize;
+            let bin_idx = bin_idx.min(num_bins - 1); // Clamp to valid range
+            histogram[bin_idx] += 1;
+        }
+
+        histogram
+    }
+
+    /// Calculate quantization parameters from min/max range
+    fn calculate_quantization_params_from_range(
+        &self,
+        min_val: f32,
+        max_val: f32,
+    ) -> Result<QuantizationParam> {
+        if (max_val - min_val).abs() < f32::EPSILON {
+            return Ok(QuantizationParam {
+                scale: 1.0,
+                zero_point: 0,
+            });
+        }
+
+        let (scale, zero_point) = match self.config.quantization_type {
+            QuantizationType::Int8 => self.calculate_int8_params(min_val, max_val),
+            QuantizationType::Int4 => self.calculate_int4_params(min_val, max_val),
+            _ => self.calculate_int8_params(min_val, max_val),
+        };
+
+        Ok(QuantizationParam { scale, zero_point })
+    }
+
+    /// Calculate quantization parameters using entropy-based method
+    fn calculate_quantization_params_entropy(
+        &self,
+        sorted_values: &[f32],
+    ) -> Result<QuantizationParam> {
+        // This is a simplified entropy-based calibration
+        // In practice, this would involve iterating through different quantization parameters
+        // and choosing the ones that minimize KL divergence
+
+        if sorted_values.is_empty() {
+            return Err(BlitzedError::OptimizationFailed {
+                reason: "Cannot calculate entropy-based quantization for empty values".to_string(),
+            });
+        }
+
+        // For now, use a method that focuses on the central 98% of the distribution
+        let len = sorted_values.len();
+        let start_idx = (len as f32 * 0.01) as usize;
+        let end_idx = (len as f32 * 0.99) as usize;
+
+        let min_val = sorted_values[start_idx];
+        let max_val = sorted_values[end_idx];
+
+        self.calculate_quantization_params_from_range(min_val, max_val)
+    }
+
+    /// Calculate quantization parameters using MSE minimization
+    fn calculate_quantization_params_mse(&self, values: &[f32]) -> Result<QuantizationParam> {
+        if values.is_empty() {
+            return Err(BlitzedError::OptimizationFailed {
+                reason: "Cannot calculate MSE-based quantization for empty values".to_string(),
+            });
+        }
+
+        // This is a simplified MSE-based calibration
+        // In practice, this would search for optimal quantization parameters
+        // that minimize reconstruction error
+
+        let min_val = values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+        let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+
+        // Try different clipping thresholds and choose the one with lowest MSE
+        let thresholds = [0.9999, 0.999, 0.99, 0.95];
+        let mut best_param = self.calculate_quantization_params_from_range(min_val, max_val)?;
+        let mut best_mse = f32::INFINITY;
+
+        for &threshold in &thresholds {
+            let mut sorted_values = values.to_vec();
+            sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+            let clip_idx = ((sorted_values.len() - 1) as f32 * threshold) as usize;
+            let clip_max = sorted_values[clip_idx];
+            let clip_min = -clip_max; // Symmetric clipping
+
+            if let Ok(param) = self.calculate_quantization_params_from_range(clip_min, clip_max) {
+                // Simulate quantization and calculate MSE
+                let mse = self.calculate_quantization_mse(values, &param);
+                if mse < best_mse {
+                    best_mse = mse;
+                    best_param = param;
+                }
+            }
+        }
+
+        Ok(best_param)
+    }
+
+    /// Calculate MSE for a given quantization parameter
+    fn calculate_quantization_mse(&self, values: &[f32], param: &QuantizationParam) -> f32 {
+        let mut mse = 0.0;
+        let count = values.len() as f32;
+
+        for &value in values {
+            // Quantize and dequantize
+            let quantized = ((value / param.scale).round() + param.zero_point as f32)
+                .clamp(-127.0, 127.0) as i8;
+            let dequantized = (quantized as f32 - param.zero_point as f32) * param.scale;
+
+            let error = value - dequantized;
+            mse += error * error;
+        }
+
+        mse / count
+    }
+
+    /// Calculate calibration quality score
+    fn calculate_calibration_quality(
+        &self,
+        values: &[f32],
+        min_val: f32,
+        max_val: f32,
+        std_val: f32,
+    ) -> f32 {
+        let mut score: f32 = 1.0;
+
+        // Penalize constant or near-constant distributions
+        if (max_val - min_val) < 0.001 {
+            score *= 0.1;
+        }
+
+        // Penalize very low variance
+        if std_val < 0.01 {
+            score *= 0.5;
+        }
+
+        // Reward reasonable dynamic range
+        let dynamic_range = (max_val - min_val) / (std_val + 1e-8);
+        if dynamic_range > 2.0 && dynamic_range < 50.0 {
+            score *= 1.2;
+        } else {
+            score *= 0.8;
+        }
+
+        // Reward sufficient sample count
+        let sample_count = values.len();
+        if sample_count >= 1000 {
+            score *= 1.1;
+        } else if sample_count < 50 {
+            score *= 0.6; // More severe penalty for very small datasets
+        } else if sample_count < 100 {
+            score *= 0.7;
+        }
+
+        score.min(1.0)
     }
 
     /// Perform post-training quantization
@@ -72,24 +513,49 @@ impl Quantizer {
             self.config.quantization_type
         );
 
+        // Analyze calibration data if available
+        let calibration_result = if self.calibration_data.is_some() {
+            log::info!("Using calibration dataset for accurate quantization");
+            Some(self.analyze_calibration_data()?)
+        } else {
+            log::warn!("No calibration data provided - using simulated quantization");
+            None
+        };
+
         match self.config.quantization_type {
-            QuantizationType::Int8 => self.quantize_int8(model),
-            QuantizationType::Int4 => self.quantize_int4(model),
-            QuantizationType::Binary => self.quantize_binary(model),
-            QuantizationType::Mixed => self.quantize_mixed(model),
+            QuantizationType::Int8 => self.quantize_int8(model, calibration_result.as_ref()),
+            QuantizationType::Int4 => self.quantize_int4(model, calibration_result.as_ref()),
+            QuantizationType::Binary => self.quantize_binary(model, calibration_result.as_ref()),
+            QuantizationType::Mixed => self.quantize_mixed(model, calibration_result.as_ref()),
         }
     }
 
     /// INT8 quantization implementation
-    fn quantize_int8(&self, model: &Model) -> Result<QuantizedModel> {
+    fn quantize_int8(
+        &self,
+        model: &Model,
+        calibration_result: Option<&CalibrationResult>,
+    ) -> Result<QuantizedModel> {
         log::info!(
             "Performing INT8 quantization (symmetric: {}, per_channel: {})",
             self.config.symmetric,
             self.config.per_channel
         );
 
+        // Log calibration information if available
+        if let Some(calibration) = calibration_result {
+            log::info!(
+                "Using calibration data: {} samples, quality score: {:.3}",
+                calibration.stats.sample_count,
+                calibration.quality_score
+            );
+            if !calibration.warnings.is_empty() {
+                log::warn!("Calibration warnings: {:?}", calibration.warnings);
+            }
+        }
+
         // Process all model weights
-        let quantized_layers = self.process_model_weights(model)?;
+        let quantized_layers = self.process_model_weights(model, calibration_result)?;
 
         // Calculate total sizes
         let original_size: usize = quantized_layers.iter().map(|l| l.original_size).sum();
@@ -154,7 +620,11 @@ impl Quantizer {
     }
 
     /// INT4 quantization implementation
-    pub fn quantize_int4(&self, model: &Model) -> Result<QuantizedModel> {
+    pub fn quantize_int4(
+        &self,
+        model: &Model,
+        calibration_result: Option<&CalibrationResult>,
+    ) -> Result<QuantizedModel> {
         log::info!(
             "Performing INT4 quantization (symmetric: {}, per_channel: {})",
             self.config.symmetric,
@@ -163,7 +633,7 @@ impl Quantizer {
         log::warn!("INT4 quantization is aggressive - expect potential accuracy loss");
 
         // Process all model weights with INT4 precision
-        let quantized_layers = self.process_model_weights_int4(model)?;
+        let quantized_layers = self.process_model_weights_int4(model, calibration_result)?;
 
         // Calculate total sizes
         let original_size: usize = quantized_layers.iter().map(|l| l.original_size).sum();
@@ -202,14 +672,18 @@ impl Quantizer {
     }
 
     /// Binary quantization implementation (1-bit weights: -1 or +1)
-    pub fn quantize_binary(&self, model: &Model) -> Result<QuantizedModel> {
+    pub fn quantize_binary(
+        &self,
+        model: &Model,
+        calibration_result: Option<&CalibrationResult>,
+    ) -> Result<QuantizedModel> {
         log::info!("Performing Binary quantization (1-bit weights: -1/+1)");
         log::warn!(
             "Binary quantization is extremely aggressive - expect significant accuracy loss"
         );
 
         // Process all model weights with binary precision
-        let quantized_layers = self.process_model_weights_binary(model)?;
+        let quantized_layers = self.process_model_weights_binary(model, calibration_result)?;
 
         // Calculate total sizes
         let original_size: usize = quantized_layers.iter().map(|l| l.original_size).sum();
@@ -248,14 +722,18 @@ impl Quantizer {
     }
 
     /// Mixed precision quantization implementation (layer-wise precision optimization)
-    pub fn quantize_mixed(&self, model: &Model) -> Result<QuantizedModel> {
+    pub fn quantize_mixed(
+        &self,
+        model: &Model,
+        calibration_result: Option<&CalibrationResult>,
+    ) -> Result<QuantizedModel> {
         log::info!("Performing Mixed Precision quantization (layer-wise optimization)");
         log::info!(
             "Using INT8 for most layers, FP16 for sensitive layers, INT4 for insensitive layers"
         );
 
         // Process all model weights with mixed precision
-        let quantized_layers = self.process_model_weights_mixed(model)?;
+        let quantized_layers = self.process_model_weights_mixed(model, calibration_result)?;
 
         // Calculate total sizes
         let original_size: usize = quantized_layers.iter().map(|l| l.original_size).sum();
@@ -376,7 +854,11 @@ impl Quantizer {
     }
 
     /// Process model weights for INT4 quantization
-    fn process_model_weights_int4(&self, model: &Model) -> Result<Vec<QuantizedLayer>> {
+    fn process_model_weights_int4(
+        &self,
+        model: &Model,
+        _calibration_result: Option<&CalibrationResult>,
+    ) -> Result<Vec<QuantizedLayer>> {
         // For now, simulate processing model layers for INT4
         // In a real implementation, this would extract actual weights from the model
         let mut quantized_layers = Vec::new();
@@ -495,7 +977,11 @@ impl Quantizer {
     }
 
     /// Process model weights for binary quantization (1-bit)
-    fn process_model_weights_binary(&self, model: &Model) -> Result<Vec<QuantizedLayer>> {
+    fn process_model_weights_binary(
+        &self,
+        model: &Model,
+        _calibration_result: Option<&CalibrationResult>,
+    ) -> Result<Vec<QuantizedLayer>> {
         // For now, simulate processing model layers for binary quantization
         // In a real implementation, this would extract actual weights from the model
         let mut quantized_layers = Vec::new();
@@ -636,7 +1122,11 @@ impl Quantizer {
     }
 
     /// Process model weights for mixed precision quantization
-    fn process_model_weights_mixed(&self, model: &Model) -> Result<Vec<QuantizedLayer>> {
+    fn process_model_weights_mixed(
+        &self,
+        model: &Model,
+        _calibration_result: Option<&CalibrationResult>,
+    ) -> Result<Vec<QuantizedLayer>> {
         // For now, simulate processing model layers with mixed precision
         // In a real implementation, this would analyze layer sensitivity and choose optimal precision
         let mut quantized_layers = Vec::new();
@@ -747,7 +1237,11 @@ impl Quantizer {
     }
 
     /// Process model weights for quantization
-    fn process_model_weights(&self, _model: &Model) -> Result<Vec<QuantizedLayer>> {
+    fn process_model_weights(
+        &self,
+        _model: &Model,
+        calibration_result: Option<&CalibrationResult>,
+    ) -> Result<Vec<QuantizedLayer>> {
         // For now, simulate processing model layers
         // In a real implementation, this would extract actual weights from the model
         let mut quantized_layers = Vec::new();
@@ -760,8 +1254,32 @@ impl Quantizer {
             ("fc2", self.generate_fc_weights(1024, 1000)),      // FC layer
         ];
 
-        for (name, weights) in layer_configs {
-            let quantized_layer = self.quantize_layer(name, &weights)?;
+        for (i, (name, weights)) in layer_configs.into_iter().enumerate() {
+            // Use calibration parameters if available, otherwise fall back to calculated params
+            let quantized_layer = if let Some(calibration) = calibration_result {
+                if i < calibration.recommended_params.len() {
+                    log::debug!(
+                        "Using calibration parameters for layer {}: scale={:.6}, zero_point={}",
+                        name,
+                        calibration.recommended_params[i].scale,
+                        calibration.recommended_params[i].zero_point
+                    );
+                    self.quantize_layer_with_params(
+                        name,
+                        &weights,
+                        &calibration.recommended_params[i],
+                    )?
+                } else {
+                    log::debug!(
+                        "No calibration parameters for layer {}, using calculated params",
+                        name
+                    );
+                    self.quantize_layer(name, &weights)?
+                }
+            } else {
+                self.quantize_layer(name, &weights)?
+            };
+
             quantized_layers.push(quantized_layer);
         }
 
@@ -771,7 +1289,17 @@ impl Quantizer {
     /// Quantize a single layer's weights
     fn quantize_layer(&self, name: &str, weights: &[f32]) -> Result<QuantizedLayer> {
         let param = self.calculate_quantization_params(weights)?;
-        let quantized_weights = self.quantize_values_int8(weights, &param);
+        self.quantize_layer_with_params(name, weights, &param)
+    }
+
+    /// Quantize a single layer's weights with specific parameters
+    fn quantize_layer_with_params(
+        &self,
+        name: &str,
+        weights: &[f32],
+        param: &QuantizationParam,
+    ) -> Result<QuantizedLayer> {
+        let quantized_weights = self.quantize_values_int8(weights, param);
 
         // Calculate size reduction
         let original_size = weights.len() * 4; // FP32 = 4 bytes
@@ -781,7 +1309,7 @@ impl Quantizer {
             name: name.to_string(),
             original_size,
             quantized_size,
-            param,
+            param: param.clone(),
             quantized_weights,
             weight_count: weights.len(),
         })
@@ -1130,7 +1658,7 @@ mod tests {
             data: model_data,
         };
 
-        let quantized_model = quantizer.quantize_int8(&model).unwrap();
+        let quantized_model = quantizer.quantize_int8(&model, None).unwrap();
 
         // Verify quantization results
         assert!(!quantized_model.layers.is_empty());

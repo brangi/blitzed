@@ -29,6 +29,7 @@ mod tests {
             per_channel: true,
             skip_sensitive_layers: false,
             accuracy_threshold: 5.0,
+            ..Default::default()
         };
 
         let quantizer = Quantizer::new(config);
@@ -49,7 +50,7 @@ mod tests {
             data: ModelData::Raw(vec![]),
         };
 
-        let result = quantizer.quantize_int4(&model);
+        let result = quantizer.quantize_int4(&model, None);
         assert!(result.is_ok(), "INT4 quantization should succeed");
 
         let quantized_model = result.unwrap();
@@ -118,6 +119,7 @@ mod tests {
             per_channel: false,
             skip_sensitive_layers: false,
             accuracy_threshold: 15.0,
+            ..Default::default()
         };
 
         let quantizer = Quantizer::new(config);
@@ -137,7 +139,7 @@ mod tests {
             data: ModelData::Raw(vec![]),
         };
 
-        let result = quantizer.quantize_binary(&model);
+        let result = quantizer.quantize_binary(&model, None);
         assert!(result.is_ok(), "Binary quantization should succeed");
 
         let quantized_model = result.unwrap();
@@ -179,6 +181,7 @@ mod tests {
             per_channel: true,
             skip_sensitive_layers: true,
             accuracy_threshold: 8.0,
+            ..Default::default()
         };
 
         let quantizer = Quantizer::new(config);
@@ -198,7 +201,7 @@ mod tests {
             data: ModelData::Raw(vec![]),
         };
 
-        let result = quantizer.quantize_mixed(&model);
+        let result = quantizer.quantize_mixed(&model, None);
         assert!(
             result.is_ok(),
             "Mixed precision quantization should succeed"
@@ -268,14 +271,15 @@ mod tests {
                 per_channel: true,
                 skip_sensitive_layers: false,
                 accuracy_threshold: 10.0,
+                ..Default::default()
             };
 
             let quantizer = Quantizer::new(config);
 
             let result = match technique {
-                QuantizationType::Int4 => quantizer.quantize_int4(&model),
-                QuantizationType::Binary => quantizer.quantize_binary(&model),
-                QuantizationType::Mixed => quantizer.quantize_mixed(&model),
+                QuantizationType::Int4 => quantizer.quantize_int4(&model, None),
+                QuantizationType::Binary => quantizer.quantize_binary(&model, None),
+                QuantizationType::Mixed => quantizer.quantize_mixed(&model, None),
                 _ => continue, // Skip other techniques for this test
             };
 
@@ -304,6 +308,7 @@ mod tests {
             per_channel: false,
             skip_sensitive_layers: false,
             accuracy_threshold: 8.0,
+            ..Default::default()
         };
 
         let asymmetric_config = QuantizationConfig {
@@ -313,6 +318,7 @@ mod tests {
             per_channel: false,
             skip_sensitive_layers: false,
             accuracy_threshold: 8.0,
+            ..Default::default()
         };
 
         let sym_quantizer = Quantizer::new(symmetric_config);
@@ -330,6 +336,7 @@ mod tests {
             per_channel: true,
             skip_sensitive_layers: false,
             accuracy_threshold: 8.0,
+            ..Default::default()
         };
 
         let per_tensor_config = QuantizationConfig {
@@ -339,6 +346,7 @@ mod tests {
             per_channel: false,
             skip_sensitive_layers: false,
             accuracy_threshold: 8.0,
+            ..Default::default()
         };
 
         let _pc_quantizer = Quantizer::new(per_channel_config);

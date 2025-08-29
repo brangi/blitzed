@@ -31,6 +31,9 @@ pub enum BlitzedError {
     #[error("Optimization failed: {reason}")]
     OptimizationFailed { reason: String },
 
+    #[error("Tensor operation error: {message}")]
+    TensorError { message: String },
+
     #[error("Target hardware not supported: {target}")]
     UnsupportedTarget { target: String },
 

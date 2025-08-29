@@ -14,7 +14,8 @@
 
 //! Performance profiling and benchmarking utilities
 
-use crate::{Model, Result};
+use crate::inference::{InferenceConfig, InferenceEngine};
+use crate::{tensor_ops::Tensor, Model, Result};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
@@ -60,12 +61,17 @@ impl Default for ProfilingConfig {
 /// Model profiler for performance analysis
 pub struct Profiler {
     config: ProfilingConfig,
+    inference_engine: InferenceEngine,
 }
 
 impl Profiler {
     /// Create a new profiler with configuration
     pub fn new(config: ProfilingConfig) -> Self {
-        Self { config }
+        let inference_config = InferenceConfig::default();
+        Self {
+            config,
+            inference_engine: InferenceEngine::new(inference_config),
+        }
     }
 
     /// Profile model loading performance
@@ -82,7 +88,7 @@ impl Profiler {
     }
 
     /// Profile model inference performance
-    pub fn profile_inference(&self, model: &Model) -> Result<PerformanceMetrics> {
+    pub fn profile_inference(&mut self, model: &Model) -> Result<PerformanceMetrics> {
         log::info!(
             "Starting inference profiling with {} warmup runs and {} benchmark runs",
             self.config.warmup_runs,
@@ -95,7 +101,7 @@ impl Profiler {
         // Warmup runs
         log::info!("Running warmup...");
         for _ in 0..self.config.warmup_runs {
-            self.run_inference_dummy(model, &input_data)?;
+            let _outputs = self.run_native_inference(model, &input_data)?;
         }
 
         // Benchmark runs
@@ -105,7 +111,7 @@ impl Profiler {
 
         for _ in 0..self.config.benchmark_runs {
             let run_start = Instant::now();
-            self.run_inference_dummy(model, &input_data)?;
+            let _outputs = self.run_native_inference(model, &input_data)?;
             inference_times.push(run_start.elapsed());
         }
 
@@ -120,7 +126,7 @@ impl Profiler {
             load_time_ms: 0, // Not measured in this function
             inference_time_ms: avg_inference_time.as_millis() as u64,
             memory_usage_bytes: model.estimate_memory_usage(),
-            cpu_utilization: 0.0, // TODO: Implement CPU measurement
+            cpu_utilization: 0.0, // Future: CPU measurement requires platform-specific APIs
             throughput,
         };
 
@@ -133,28 +139,38 @@ impl Profiler {
     }
 
     /// Generate dummy input data for profiling
-    fn generate_dummy_input(&self, model: &Model) -> Result<Vec<Vec<f32>>> {
+    fn generate_dummy_input(&self, model: &Model) -> Result<Vec<Tensor>> {
         let mut inputs = Vec::new();
 
         for shape in &model.info().input_shapes {
             let size = shape.iter().product::<i64>() as usize;
             let dummy_data: Vec<f32> = (0..size).map(|i| (i % 255) as f32 / 255.0).collect();
-            inputs.push(dummy_data);
+
+            let tensor = Tensor::new(
+                shape.iter().map(|&x| x as usize).collect(),
+                crate::tensor_ops::TensorData::Float32(dummy_data),
+            );
+            inputs.push(tensor);
         }
 
         Ok(inputs)
     }
 
-    /// Run a dummy inference for profiling
-    fn run_inference_dummy(&self, _model: &Model, _input: &[Vec<f32>]) -> Result<()> {
-        // TODO: Implement actual inference call
-        // This is a placeholder that simulates inference work
-        std::thread::sleep(Duration::from_micros(100)); // Simulate 0.1ms work
-        Ok(())
+    /// Run native inference for profiling
+    fn run_native_inference(&mut self, model: &Model, input: &[Tensor]) -> Result<Vec<Tensor>> {
+        // Load the model into the inference engine
+        self.inference_engine.load_model(model)?;
+
+        // Run inference with our native engine
+        self.inference_engine.inference(input.to_vec())
     }
 
     /// Compare performance between two models
-    pub fn compare_models(&self, original: &Model, optimized: &Model) -> Result<ComparisonResult> {
+    pub fn compare_models(
+        &mut self,
+        original: &Model,
+        optimized: &Model,
+    ) -> Result<ComparisonResult> {
         log::info!("Comparing model performance...");
 
         let original_metrics = self.profile_inference(original)?;
@@ -187,7 +203,7 @@ impl Profiler {
 
     /// Benchmark against hardware constraints
     pub fn benchmark_constraints(
-        &self,
+        &mut self,
         model: &Model,
         memory_limit: usize,
         latency_limit_ms: u64,
@@ -292,7 +308,10 @@ mod tests {
 
         let inputs = profiler.generate_dummy_input(&model).unwrap();
         assert_eq!(inputs.len(), 1); // One input tensor
-        assert_eq!(inputs[0].len(), 3 * 224 * 224); // Expected size
+                                     // Check the tensor shape matches expected dimensions
+        let expected_size: usize = 3 * 224 * 224;
+        let tensor_size: usize = inputs[0].shape.iter().product();
+        assert_eq!(tensor_size, expected_size); // Expected size
     }
 
     #[test]

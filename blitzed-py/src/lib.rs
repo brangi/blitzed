@@ -117,6 +117,7 @@ fn quantize_model(
             .get_item("accuracy_threshold")?
             .map(|v| v.extract().unwrap_or(5.0))
             .unwrap_or(5.0),
+        ..Default::default()
     };
 
     let quantizer = Quantizer::new(quant_config.clone());
@@ -284,7 +285,7 @@ fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py
     let model = Model::load(&model_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
-    let profiler = Profiler::new(ProfilingConfig::default());
+    let mut profiler = Profiler::new(ProfilingConfig::default());
     let metrics = profiler
         .profile_inference(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;

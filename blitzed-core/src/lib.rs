@@ -28,11 +28,13 @@ pub mod config;
 pub mod converters;
 pub mod deployment;
 pub mod error;
+pub mod inference;
 pub mod model;
 pub mod onnx_analyzer;
 pub mod optimization;
 pub mod profiler;
 pub mod targets;
+pub mod tensor_ops;
 pub mod validation;
 
 pub use benchmarking::suite::BenchmarkSuite;

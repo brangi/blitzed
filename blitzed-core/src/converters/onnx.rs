@@ -95,7 +95,7 @@ impl OnnxConverter {
             parameter_count,
             model_size_bytes,
             operations_count,
-            layers: vec![], // TODO: Extract layer information from ONNX graph
+            layers: vec![], // INCOMPLETE: Layer extraction from ONNX graph not implemented
         })
     }
 

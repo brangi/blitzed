@@ -90,7 +90,7 @@ impl PyTorchConverter {
             parameter_count,
             model_size_bytes,
             operations_count,
-            layers: vec![], // TODO: Extract layer info from PyTorch module
+            layers: vec![], // INCOMPLETE: Layer extraction from PyTorch module not implemented
         })
     }
 
