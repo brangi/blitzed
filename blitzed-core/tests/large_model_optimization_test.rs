@@ -226,7 +226,8 @@ mod tests {
             // Generate ImageNet-like normalized data with realistic statistics
             for pixel_idx in 0..(3 * 224 * 224) {
                 // Use different seeds for more diversity
-                let base_seed = (sample_idx as f32 * 0.003 + pixel_idx as f32 * 0.0001) % 6.28;
+                let base_seed =
+                    (sample_idx as f32 * 0.003 + pixel_idx as f32 * 0.0001) % std::f32::consts::TAU;
                 let channel = pixel_idx % 3;
 
                 // Channel-specific statistics mimicking ImageNet

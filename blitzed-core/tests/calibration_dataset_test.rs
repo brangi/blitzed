@@ -77,7 +77,8 @@ mod tests {
             // Generate image-like data with realistic statistics
             for pixel_idx in 0..(3 * 224 * 224) {
                 // Simulate normalized ImageNet values (mean ~0, std ~1)
-                let base_val = (sample_idx as f32 * 0.01 + pixel_idx as f32 * 0.0001) % 6.28; // 0 to 2π
+                let base_val =
+                    (sample_idx as f32 * 0.01 + pixel_idx as f32 * 0.0001) % std::f32::consts::TAU; // 0 to 2π
                 let normalized_val = (base_val.sin() * 0.5 + base_val.cos() * 0.3).tanh(); // -1 to 1 range
                 sample_data.push(normalized_val);
             }
@@ -99,7 +100,8 @@ mod tests {
             let mut sample_data = Vec::new();
 
             for feature_idx in 0..512 {
-                let base_val = (sample_idx as f32 * 0.1 + feature_idx as f32 * 0.01) % 3.14;
+                let base_val =
+                    (sample_idx as f32 * 0.1 + feature_idx as f32 * 0.01) % std::f32::consts::PI;
 
                 // Add outliers to 5% of the data
                 let val = if (sample_idx + feature_idx) % 20 == 0 {
