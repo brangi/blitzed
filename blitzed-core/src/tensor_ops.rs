@@ -546,10 +546,10 @@ impl TensorOps {
                 let mut output_data = Vec::with_capacity(a_size);
                 let channel_stride = a_size / (a.shape[0] * a.shape[1]);
 
-                for i in 0..a_size {
+                for (i, &a_val) in a_data.iter().enumerate() {
                     let channel = (i / channel_stride) % a.shape[1];
                     let bias_value = b_data[channel];
-                    output_data.push(a_data[i] + bias_value);
+                    output_data.push(a_val + bias_value);
                 }
 
                 return Ok(Tensor::new(

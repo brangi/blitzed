@@ -725,7 +725,7 @@ mod tests {
             .expect("Model loading should succeed");
 
         // Create dummy input tensor
-        let input_data = vec![0.5f32; 1 * 3 * 224 * 224];
+        let input_data = vec![0.5f32; 3 * 224 * 224];
         let input_tensor = Tensor::new(vec![1, 3, 224, 224], TensorData::Float32(input_data));
 
         let result = engine.inference(vec![input_tensor]);

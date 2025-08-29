@@ -292,7 +292,7 @@ impl Quantizer {
             quality_scores.push(quality_score);
 
             // Add warnings for potential issues
-            if (max_val - min_val) < f32::EPSILON {
+            if (max_val - min_val).abs() < f32::EPSILON {
                 warnings.push(format!("Input tensor {} has constant values", tensor_idx));
             }
             if std_val < 0.001 {
@@ -339,7 +339,7 @@ impl Quantizer {
         let min_val = values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
-        if (max_val - min_val) < f32::EPSILON {
+        if (max_val - min_val).abs() < f32::EPSILON {
             // All values are the same
             let mut histogram = vec![0; num_bins];
             histogram[0] = values.len();
