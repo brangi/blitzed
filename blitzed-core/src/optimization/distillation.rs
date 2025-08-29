@@ -278,7 +278,7 @@ impl Distiller {
 
         scaled_logits
             .iter()
-            .map(|x| ((x - max_logit).exp() / exp_sum))
+            .map(|x| (x - max_logit).exp() / exp_sum)
             .collect()
     }
 
