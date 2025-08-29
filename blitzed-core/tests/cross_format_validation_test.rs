@@ -314,9 +314,7 @@ mod tests {
 
         // Test with default configuration
         let result = validator.simulate_numerical_comparison(&pytorch_model, &onnx_model);
-        assert!(result.is_ok());
-
-        let diff = result.unwrap();
+        let diff = result.expect("Numerical difference calculation should succeed");
         assert!(diff > 0.0);
         assert!(diff < 1e-3); // Should be small but non-zero
 
@@ -333,9 +331,7 @@ mod tests {
         // Test with different complexity models
         let simple_model = create_incompatible_model(); // Smaller model
         let result = validator.simulate_numerical_comparison(&simple_model, &onnx_model);
-        assert!(result.is_ok());
-
-        let simple_diff = result.unwrap();
+        let simple_diff = result.expect("Simple model numerical difference should succeed");
         println!("   - Simple model difference: {:.2e}", simple_diff);
         println!("   - Complex vs simple: {:.2}x", diff / simple_diff);
 
@@ -361,9 +357,7 @@ mod tests {
         assert!(compatibility_result.is_ok());
 
         let comparison_result = validator.compare_model_outputs(&pytorch_model, &onnx_model);
-        assert!(comparison_result.is_ok());
-
-        let validation_result = comparison_result.unwrap();
+        let validation_result = comparison_result.expect("Model output comparison should succeed");
         println!("   - Source format: {}", validation_result.source_format);
         println!("   - Target format: {}", validation_result.target_format);
         println!(

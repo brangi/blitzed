@@ -101,9 +101,7 @@ fn test_onnx_model_inference() {
 
     let converter = OnnxConverter::new();
     let result = converter.load_model("/tmp/test_model.onnx");
-    assert!(result.is_ok(), "Failed to load model for inference test");
-
-    let model = result.unwrap();
+    let model = result.expect("Failed to load model for inference test");
 
     // Verify we got an ONNX model with session data
     #[cfg(feature = "onnx")]

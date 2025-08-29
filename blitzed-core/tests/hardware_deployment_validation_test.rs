@@ -185,9 +185,7 @@ mod tests {
 
         // Validate ESP32 deployment
         let result = validator.validate_esp32_deployment(&model, &optimizer);
-        assert!(result.is_ok());
-
-        let deployment_result = result.unwrap();
+        let deployment_result = result.expect("ESP32 deployment validation should succeed");
         println!(
             "   Status: {}",
             if deployment_result.deployment_successful {
@@ -301,9 +299,7 @@ mod tests {
 
         // Validate Arduino deployment
         let result = validator.validate_arduino_deployment(&model, &optimizer);
-        assert!(result.is_ok());
-
-        let deployment_result = result.unwrap();
+        let deployment_result = result.expect("Arduino deployment validation should succeed");
         println!(
             "   Status: {}",
             if deployment_result.deployment_successful {
@@ -399,9 +395,7 @@ mod tests {
 
         // Validate STM32 deployment
         let result = validator.validate_stm32_deployment(&model, &optimizer);
-        assert!(result.is_ok());
-
-        let deployment_result = result.unwrap();
+        let deployment_result = result.expect("STM32 deployment validation should succeed");
         println!(
             "   Status: {}",
             if deployment_result.deployment_successful {
@@ -595,8 +589,7 @@ mod tests {
                 _ => panic!("Unknown target"),
             };
 
-            assert!(result.is_ok());
-            let deployment_result = result.unwrap();
+            let deployment_result = result.expect("Deployment should succeed");
             results.push(deployment_result);
 
             println!("   {} Deployment:", name);
@@ -724,8 +717,7 @@ mod tests {
         // This should succeed but with warnings about constraint violations
         let result = validator.validate_arduino_deployment(&large_model, &optimizer);
 
-        if result.is_ok() {
-            let deployment_result = result.unwrap();
+        if let Ok(deployment_result) = result {
             println!(
                 "   Large model deployment status: {}",
                 if deployment_result.deployment_successful {

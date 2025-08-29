@@ -101,9 +101,7 @@ mod tests {
         let onnx_model = create_test_onnx_model();
 
         let result = validator.compare_model_outputs(&pytorch_model, &onnx_model);
-        assert!(result.is_ok());
-
-        let validation_result = result.unwrap();
+        let validation_result = result.expect("Model output comparison should succeed");
         assert_eq!(validation_result.source_format, "PyTorch");
         assert_eq!(validation_result.target_format, "ONNX");
         assert_eq!(validation_result.tolerance_threshold, 0.15);
@@ -140,8 +138,8 @@ mod tests {
         let result =
             validator.validate_complete_pipeline(&pytorch_model, &onnx_model, &optimizer, &config);
 
-        assert!(result.is_ok());
-        let (cross_format_result, optimization_result) = result.unwrap();
+        let (cross_format_result, optimization_result) =
+            result.expect("Complete pipeline validation should succeed");
 
         // Cross-format validation should pass with reasonable tolerance
         assert!(cross_format_result.validation_passed);
@@ -170,9 +168,7 @@ mod tests {
         ];
 
         let results = validator.validate_model_batch(&model_pairs);
-        assert!(results.is_ok());
-
-        let validation_results = results.unwrap();
+        let validation_results = results.expect("Batch model validation should succeed");
         assert_eq!(validation_results.len(), 3);
 
         // All should pass with simulated inference and reasonable tolerance
