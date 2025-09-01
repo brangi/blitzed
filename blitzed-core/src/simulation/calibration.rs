@@ -26,7 +26,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct PerformanceCalibrator {
     /// Target accuracy threshold for calibration
-    accuracy_threshold: f32,
+    _accuracy_threshold: f32,
     /// Calibration data by target
     calibration_data: HashMap<String, Vec<CalibrationData>>,
     /// Current accuracy scores by target
@@ -169,7 +169,7 @@ impl PerformanceCalibrator {
     /// Create new performance calibrator
     pub fn new(accuracy_threshold: f32) -> Self {
         Self {
-            accuracy_threshold,
+            _accuracy_threshold: accuracy_threshold,
             calibration_data: HashMap::new(),
             accuracy_scores: HashMap::new(),
             stats: CalibrationStatistics::default(),
@@ -592,7 +592,7 @@ mod tests {
     #[test]
     fn test_calibrator_creation() {
         let calibrator = PerformanceCalibrator::new(0.9);
-        assert_eq!(calibrator.accuracy_threshold, 0.9);
+        assert_eq!(calibrator._accuracy_threshold, 0.9);
         assert_eq!(calibrator.calibration_data.len(), 0);
         assert_eq!(calibrator.stats.total_data_points, 0);
     }

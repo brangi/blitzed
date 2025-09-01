@@ -312,12 +312,12 @@ impl PerformanceModel {
         let power_profile = &profile.power_profile;
 
         // Base power consumption calculation
-        let execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
+        let _execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
 
         // Calculate dynamic power based on CPU utilization
         let cpu_activity = (qemu_result.performance_counters.instructions_executed as f32)
             / (profile.cpu_profile.base_frequency_mhz as f32
-                * execution_duration_sec
+                * _execution_duration_sec
                 * 1_000_000.0);
         let cpu_activity_clamped = cpu_activity.min(1.0).max(0.1); // 10-100% activity
 
@@ -341,13 +341,13 @@ impl PerformanceModel {
         qemu_result: &QemuExecutionResult,
         profile: &TargetPerformanceProfile,
     ) -> Result<f32> {
-        let execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
+        let _execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
         let max_instructions_per_sec = profile.cpu_profile.base_frequency_mhz as f32
             * profile.cpu_profile.ipc_typical
             * 1_000_000.0;
 
         let actual_instructions_per_sec =
-            qemu_result.performance_counters.instructions_executed as f32 / execution_duration_sec;
+            qemu_result.performance_counters.instructions_executed as f32 / _execution_duration_sec;
 
         let utilization = (actual_instructions_per_sec / max_instructions_per_sec) * 100.0;
         Ok(utilization.min(100.0).max(0.0))
@@ -359,9 +359,9 @@ impl PerformanceModel {
         qemu_result: &QemuExecutionResult,
         profile: &TargetPerformanceProfile,
     ) -> Result<f32> {
-        let execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
+        let _execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
         let memory_accesses_per_sec =
-            qemu_result.memory_stats.memory_accesses as f32 / execution_duration_sec;
+            qemu_result.memory_stats.memory_accesses as f32 / _execution_duration_sec;
 
         // Assume each memory access transfers cache line size
         let bytes_per_sec =
@@ -383,7 +383,7 @@ impl PerformanceModel {
         let branch_efficiency = qemu_result.performance_counters.branch_prediction_accuracy;
 
         // IPC efficiency (actual vs theoretical)
-        let execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
+        let _execution_duration_sec = qemu_result.execution_time_ms as f32 / 1000.0;
         let actual_ipc = qemu_result.performance_counters.instructions_executed as f32
             / qemu_result.performance_counters.cpu_cycles as f32;
         let ipc_efficiency = (actual_ipc / profile.cpu_profile.ipc_typical).min(1.0);

@@ -39,8 +39,8 @@ pub struct ConstraintMonitor {
 /// Active monitoring session for a target
 #[derive(Debug)]
 struct MonitoringSession {
-    target_name: String,
-    start_time: Instant,
+    _target_name: String,
+    _start_time: Instant,
     constraints: HardwareConstraints,
     real_time_metrics: Vec<RealTimeMetric>,
     violation_count: usize,
@@ -49,7 +49,7 @@ struct MonitoringSession {
 /// Real-time metric sample during monitoring
 #[derive(Debug, Clone)]
 struct RealTimeMetric {
-    timestamp: Instant,
+    _timestamp: Instant,
     memory_usage: u64,
     cpu_utilization: f32,
     power_consumption: f32,
@@ -195,8 +195,8 @@ impl ConstraintMonitor {
 
         // Create monitoring session
         let session = MonitoringSession {
-            target_name: target_name.to_string(),
-            start_time: Instant::now(),
+            _target_name: target_name.to_string(),
+            _start_time: Instant::now(),
             constraints,
             real_time_metrics: Vec::new(),
             violation_count: 0,
@@ -234,7 +234,7 @@ impl ConstraintMonitor {
 
         // Record current metrics
         let current_metric = RealTimeMetric {
-            timestamp: now,
+            _timestamp: now,
             memory_usage: metrics.memory_usage_bytes,
             cpu_utilization: metrics.cpu_utilization_percent,
             power_consumption: metrics.power_consumption_mw,

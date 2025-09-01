@@ -97,7 +97,7 @@ pub struct QemuEmulator {
 }
 
 #[derive(Debug, PartialEq)]
-enum EmulatorState {
+pub enum EmulatorState {
     Idle,
     Running,
     Completed,
