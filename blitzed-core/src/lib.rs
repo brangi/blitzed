@@ -33,6 +33,7 @@ pub mod model;
 pub mod onnx_analyzer;
 pub mod optimization;
 pub mod profiler;
+pub mod simulation;
 pub mod targets;
 pub mod tensor_ops;
 pub mod validation;
@@ -43,6 +44,7 @@ pub use deployment::{DeploymentValidationConfig, HardwareDeploymentValidator};
 pub use error::{BlitzedError, Result};
 pub use model::{Model, ModelFormat, ModelInfo};
 pub use optimization::{OptimizationConfig, Optimizer};
+pub use simulation::{SimulationConfig, SimulationFramework, SimulationResult};
 pub use validation::{CrossFormatValidator, ValidationConfig};
 
 /// Core version information

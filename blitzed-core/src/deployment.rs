@@ -19,7 +19,7 @@
 
 use crate::optimization::Optimizer;
 use crate::targets::{HardwareTarget, TargetRegistry};
-use crate::{Model, Result};
+use crate::{BlitzedError, Model, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -691,6 +691,181 @@ impl HardwareDeploymentValidator {
         }
 
         report
+    }
+
+    /// Enhanced deployment validation using simulation framework
+    pub async fn validate_with_enhanced_simulation(
+        &self,
+        model: &Model,
+        optimizer: &Optimizer,
+        targets: &[&str],
+    ) -> Result<
+        Vec<(
+            String,
+            DeploymentValidationResult,
+            crate::simulation::SimulationResult,
+        )>,
+    > {
+        use crate::simulation::{SimulationConfig, SimulationFramework};
+
+        log::info!("🚀 Starting enhanced deployment validation with simulation framework");
+
+        // Initialize simulation framework
+        let sim_config = SimulationConfig {
+            target_names: targets.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let mut simulation_framework = SimulationFramework::new(sim_config)?;
+
+        let mut results = Vec::new();
+
+        // Validate each target
+        for target_name in targets {
+            log::info!("🎯 Validating deployment for target: {}", target_name);
+
+            // Run traditional deployment validation
+            let deployment_result = match target_name.to_lowercase().as_str() {
+                "esp32" => self.validate_esp32_deployment(model, optimizer)?,
+                "arduino" => self.validate_arduino_deployment(model, optimizer)?,
+                "stm32" => self.validate_stm32_deployment(model, optimizer)?,
+                "raspberry_pi" | "raspi" => {
+                    // Create a generic deployment validation for Raspberry Pi
+                    let target = self.target_registry.get_target("raspberry_pi")?;
+                    let original_info =
+                        self.analyze_model_deployment_info(model, target, vec![])?;
+                    let optimization_result = optimizer.optimize(model)?;
+                    let optimized_info = self.analyze_model_deployment_info(
+                        model,
+                        target,
+                        optimization_result.techniques_applied.clone(),
+                    )?;
+
+                    DeploymentValidationResult {
+                        target_name: "Raspberry Pi".to_string(),
+                        original_model_info: original_info,
+                        optimized_model_info: optimized_info.clone(),
+                        deployment_successful: optimized_info.fits_constraints,
+                        performance_metrics: self.measure_raspberry_pi_performance(
+                            model,
+                            &optimization_result,
+                            target,
+                        )?,
+                        deployment_artifacts: self
+                            .generate_raspberry_pi_artifacts(model, &optimization_result)?,
+                        validation_timestamp: chrono::Utc::now()
+                            .format("%Y-%m-%d %H:%M:%S UTC")
+                            .to_string(),
+                        warnings: Vec::new(),
+                    }
+                }
+                _ => {
+                    return Err(BlitzedError::UnsupportedTarget {
+                        target: target_name.to_string(),
+                    })
+                }
+            };
+
+            // Run enhanced simulation
+            let simulation_result = simulation_framework
+                .simulate_deployment(model, target_name, &deployment_result.deployment_artifacts)
+                .await?;
+
+            log::info!(
+                "✅ {}: Deployment {} | Simulation {} (confidence: {:.1}%)",
+                target_name,
+                if deployment_result.deployment_successful {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                if simulation_result.simulation_successful {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                simulation_result.confidence_score * 100.0
+            );
+
+            results.push((
+                target_name.to_string(),
+                deployment_result,
+                simulation_result,
+            ));
+        }
+
+        log::info!(
+            "🎉 Enhanced deployment validation completed for {} targets",
+            targets.len()
+        );
+        Ok(results)
+    }
+
+    /// Generate Raspberry Pi deployment artifacts
+    fn generate_raspberry_pi_artifacts(
+        &self,
+        model: &Model,
+        optimization_result: &crate::optimization::OptimizationResult,
+    ) -> Result<DeploymentArtifacts> {
+        use crate::codegen::raspberry_pi::RaspberryPiCodeGen;
+        use crate::codegen::CodeGenerator;
+
+        let codegen = RaspberryPiCodeGen::new();
+        let output_dir = self
+            .config
+            .output_directory
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join("blitzed_raspberry_pi"));
+
+        let _generated_code = codegen.generate(model, &output_dir)?;
+
+        // Calculate deployment size
+        let deployment_size = optimization_result.optimized_size + 50000; // Add Pi runtime overhead
+
+        Ok(DeploymentArtifacts {
+            source_files: vec!["main.c".into(), "blitzed_model.c".into()],
+            header_files: vec!["blitzed_model.h".into()],
+            build_files: vec!["Makefile".into()],
+            example_files: vec![output_dir.join("blitzed_benchmark")],
+            total_size_bytes: deployment_size,
+            build_ready: true,
+        })
+    }
+
+    /// Measure Raspberry Pi performance metrics
+    fn measure_raspberry_pi_performance(
+        &self,
+        model: &Model,
+        optimization_result: &crate::optimization::OptimizationResult,
+        target: &dyn HardwareTarget,
+    ) -> Result<PerformanceMetrics> {
+        let start_time = Instant::now();
+        let info = model.info();
+        let constraints = target.constraints();
+
+        // Raspberry Pi 4B: ARM Cortex-A72 quad-core @ 1.5GHz
+        let cpu_factor = constraints.cpu_frequency as f64 / 100.0;
+        let operations_per_ms = cpu_factor * 50000.0; // High-performance ARM with good IPC
+
+        let estimated_inference_time_ms = info.operations_count as f64 / operations_per_ms;
+        let memory_usage =
+            optimization_result.optimized_size + self.estimate_activation_memory(model);
+        let memory_efficiency = 1.0 - (memory_usage as f64 / constraints.memory_limit as f64);
+
+        // Raspberry Pi has good sustained performance
+        let power_efficiency = 0.8 - (estimated_inference_time_ms / 10000.0) * 0.1;
+        let power_efficiency = power_efficiency.clamp(0.3, 1.0);
+
+        let latency_accuracy_score =
+            1.0 - (optimization_result.estimated_accuracy_loss as f64 / 100.0);
+        let code_generation_time_ms = start_time.elapsed().as_millis() as u64;
+
+        Ok(PerformanceMetrics {
+            estimated_inference_time_ms: estimated_inference_time_ms.max(0.1),
+            memory_efficiency: memory_efficiency.clamp(0.0, 1.0),
+            power_efficiency,
+            latency_accuracy_score: latency_accuracy_score.clamp(0.0, 1.0),
+            code_generation_time_ms,
+        })
     }
 
     /// Get validation configuration
