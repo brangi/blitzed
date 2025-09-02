@@ -214,7 +214,7 @@ impl PerformanceModel {
         &self,
         qemu_result: &QemuExecutionResult,
     ) -> Result<SimulationMetrics> {
-        let profile = self.get_target_profile(&qemu_result)?;
+        let profile = self.get_target_profile(qemu_result)?;
 
         // Calculate inference time based on execution data and CPU profile
         let inference_time_us = self.calculate_inference_time(qemu_result, profile)?;
@@ -319,7 +319,7 @@ impl PerformanceModel {
             / (profile.cpu_profile.base_frequency_mhz as f32
                 * _execution_duration_sec
                 * 1_000_000.0);
-        let cpu_activity_clamped = cpu_activity.min(1.0).max(0.1); // 10-100% activity
+        let cpu_activity_clamped = cpu_activity.clamp(0.1, 1.0); // 10-100% activity
 
         // Power consumption model: idle + (active - idle) * utilization
         let power_consumption = power_profile.idle_power_mw
@@ -350,7 +350,7 @@ impl PerformanceModel {
             qemu_result.performance_counters.instructions_executed as f32 / _execution_duration_sec;
 
         let utilization = (actual_instructions_per_sec / max_instructions_per_sec) * 100.0;
-        Ok(utilization.min(100.0).max(0.0))
+        Ok(utilization.clamp(0.0, 100.0))
     }
 
     /// Calculate memory bandwidth utilization
@@ -369,7 +369,7 @@ impl PerformanceModel {
         let mb_per_sec = bytes_per_sec / (1024.0 * 1024.0);
 
         let utilization = (mb_per_sec / profile.memory_profile.bandwidth_mb_per_sec as f32) * 100.0;
-        Ok(utilization.min(100.0).max(0.0))
+        Ok(utilization.clamp(0.0, 100.0))
     }
 
     /// Calculate overall efficiency score
@@ -392,7 +392,7 @@ impl PerformanceModel {
         let efficiency =
             (cache_efficiency * 0.3) + (branch_efficiency * 0.3) + (ipc_efficiency * 0.4);
 
-        Ok(efficiency.min(1.0).max(0.0))
+        Ok(efficiency.clamp(0.0, 1.0))
     }
 
     /// Calculate thermal performance metrics

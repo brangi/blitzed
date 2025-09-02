@@ -159,6 +159,7 @@ mod tests {
 
     /// Test unified pipeline with all optimization techniques
     #[test]
+    #[ignore = "Expensive test - unified pipeline with all techniques, run with --ignored or slow-tests feature"]
     fn test_unified_pipeline_all_techniques() {
         env_logger::try_init().ok();
 

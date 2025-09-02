@@ -23,6 +23,11 @@
 
 #[cfg(test)]
 mod tests {
+    // All tests in this module are expensive as they perform real inference validation
+    #![cfg_attr(
+        not(feature = "slow-tests"),
+        ignore = "Expensive real inference tests - enable slow-tests feature"
+    )]
     use blitzed_core::model::{LayerInfo, Model, ModelData, ModelFormat, ModelInfo};
     use blitzed_core::optimization::Optimizer;
     use blitzed_core::validation::{CrossFormatValidator, ValidationConfig};

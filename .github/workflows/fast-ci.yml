@@ -1,0 +1,67 @@
+name: Fast CI (Tier 1)
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  LIBTORCH_USE_PYTORCH: 1
+
+jobs:
+  fast-tests:
+    name: Fast Tests & Linting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: fast-ci-${{ runner.os }}
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run fast unit tests
+      run: |
+        cargo test --lib \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets \
+          --verbose
+
+    - name: Run essential integration tests
+      run: |
+        cargo test \
+          --test enhanced_simulation_test \
+          --test benchmarking_basic_test \
+          --test cli_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets \
+          --verbose
+
+    - name: Run clippy
+      run: |
+        cargo clippy \
+          -p blitzed-core \
+          --all-targets \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets \
+          -- -D warnings
+
+    - name: Check compilation with all features
+      run: |
+        cargo check \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets

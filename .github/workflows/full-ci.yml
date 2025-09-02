@@ -1,0 +1,129 @@
+name: Full CI (Tier 3)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Nightly at 2 AM UTC
+  release:
+    types: [published]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  LIBTORCH_USE_PYTORCH: 1
+
+jobs:
+  full-tests:
+    name: Complete Test Suite + Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: full-ci-${{ runner.os }}
+
+    - name: Run all tests with coverage
+      run: |
+        cargo llvm-cov \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --lcov --output-path lcov.info
+
+    - name: Run expensive calibration tests
+      run: |
+        cargo test \
+          --test calibration_dataset_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --verbose \
+          -- --include-ignored
+
+    - name: Run large model tests
+      run: |
+        cargo test \
+          --test large_model_optimization_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --verbose
+
+    - name: Run real model tests
+      run: |
+        cargo test \
+          --test onnx_real_test \
+          --test pytorch_real_test \
+          --test cross_format_real_validation_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --verbose
+
+    - name: Run full benchmark demo
+      run: |
+        cargo test \
+          --test full_benchmark_demo_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --verbose
+
+    - name: Run unified pipeline test
+      run: |
+        cargo test \
+          --test unified_pipeline_test \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets,slow-tests \
+          --verbose
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: github.event_name != 'workflow_dispatch'
+      with:
+        files: lcov.info
+        fail_ci_if_error: true
+
+  matrix-tests:
+    name: Multi-OS & Rust Version Matrix
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+        exclude:
+          # Reduce matrix size for efficiency
+          - os: windows-latest
+            rust: beta
+          - os: macos-latest
+            rust: beta
+    
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: matrix-${{ matrix.os }}-${{ matrix.rust }}
+
+    - name: Run core tests
+      run: |
+        cargo test --lib \
+          --no-default-features \
+          --features quantization,pruning,distillation,hardware-targets

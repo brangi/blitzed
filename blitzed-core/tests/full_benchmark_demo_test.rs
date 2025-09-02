@@ -6,6 +6,7 @@ use blitzed_core::BenchmarkSuite;
 use std::time::Duration;
 
 #[test]
+#[ignore = "Expensive test - comprehensive benchmark, run with --ignored or slow-tests feature"]
 fn test_comprehensive_benchmark_demo() {
     // Create a comprehensive benchmark configuration
     let config = BenchmarkConfig {

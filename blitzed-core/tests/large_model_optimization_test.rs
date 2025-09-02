@@ -250,6 +250,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - large model optimization, run with --ignored or slow-tests feature"]
     fn test_large_resnet50_quantization_pipeline() {
         env_logger::try_init().ok();
 
@@ -348,6 +349,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - large model optimization, run with --ignored or slow-tests feature"]
     fn test_large_efficientnet_optimization_pipeline() {
         env_logger::try_init().ok();
 
@@ -439,6 +441,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - memory-constrained optimization, run with --ignored or slow-tests feature"]
     fn test_memory_constrained_optimization() {
         env_logger::try_init().ok();
 
@@ -529,6 +532,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - performance benchmarking, run with --ignored or slow-tests feature"]
     fn test_optimization_performance_benchmarking() {
         env_logger::try_init().ok();
 
@@ -623,6 +627,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - end-to-end large model workflow, run with --ignored or slow-tests feature"]
     fn test_end_to_end_large_model_workflow() {
         env_logger::try_init().ok();
 

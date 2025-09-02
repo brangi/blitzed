@@ -14,6 +14,7 @@
 
 #[cfg(feature = "pytorch")]
 #[test]
+#[ignore = "Expensive test - loads real PyTorch models, run with --ignored or slow-tests feature"]
 fn test_load_real_pytorch_models() {
     use blitzed_core::converters::pytorch::PyTorchConverter;
     use blitzed_core::converters::ModelConverter;
@@ -115,6 +116,7 @@ fn test_load_real_pytorch_models() {
 
 #[cfg(feature = "pytorch")]
 #[test]
+#[ignore = "Expensive test - PyTorch model forward pass, run with --ignored or slow-tests feature"]
 fn test_pytorch_model_forward_pass() {
     use blitzed_core::converters::pytorch::PyTorchConverter;
     use blitzed_core::converters::ModelConverter;

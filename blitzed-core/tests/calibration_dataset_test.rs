@@ -267,6 +267,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive test - takes 74+ seconds, run with --ignored or slow-tests feature"]
     fn test_calibration_analysis_mse() {
         let config = QuantizationConfig {
             calibration_method: CalibrationMethod::MSE,

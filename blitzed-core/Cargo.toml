@@ -71,3 +71,4 @@ quantization = []
 pruning = []
 distillation = []
 hardware-targets = []
+slow-tests = []  # Enable expensive/slow tests for comprehensive CI

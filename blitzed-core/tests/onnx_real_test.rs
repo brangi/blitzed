@@ -14,6 +14,7 @@
 
 #[cfg(feature = "onnx")]
 #[test]
+#[ignore = "Expensive test - loads real ONNX models, run with --ignored or slow-tests feature"]
 fn test_load_real_onnx_models() {
     use blitzed_core::converters::onnx::OnnxConverter;
     use blitzed_core::converters::ModelConverter;
@@ -88,6 +89,7 @@ fn test_load_real_onnx_models() {
 
 #[cfg(feature = "onnx")]
 #[test]
+#[ignore = "Expensive test - ONNX model inference, run with --ignored or slow-tests feature"]
 fn test_onnx_model_inference() {
     use blitzed_core::converters::onnx::OnnxConverter;
     use blitzed_core::converters::ModelConverter;

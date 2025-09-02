@@ -188,7 +188,7 @@ impl PerformanceCalibrator {
         // Store calibration data
         self.calibration_data
             .entry(target_name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(data);
 
         // Keep calibration data manageable (last 500 points per target)
@@ -437,7 +437,7 @@ impl PerformanceCalibrator {
         }
 
         // Ensure quality stays within bounds
-        quality.max(0.0).min(1.0)
+        quality.clamp(0.0, 1.0)
     }
 
     /// Calculate confidence score for simulation predictions
