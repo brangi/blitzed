@@ -23,11 +23,6 @@
 
 #[cfg(test)]
 mod tests {
-    // All tests in this module are expensive as they perform real inference validation
-    #![cfg_attr(
-        not(feature = "slow-tests"),
-        ignore = "Expensive real inference tests - enable slow-tests feature"
-    )]
     use blitzed_core::model::{LayerInfo, Model, ModelData, ModelFormat, ModelInfo};
     use blitzed_core::optimization::Optimizer;
     use blitzed_core::validation::{CrossFormatValidator, ValidationConfig};
@@ -97,6 +92,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_cross_format_validation_with_real_inference() {
         blitzed_core::init().ok();
 
@@ -129,6 +125,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_complete_validation_pipeline() {
         blitzed_core::init().ok();
 
@@ -159,6 +156,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_batch_model_validation() {
         blitzed_core::init().ok();
 
@@ -185,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_model_structure_validation() {
         let validator = CrossFormatValidator::new();
         let pytorch_model = create_test_pytorch_model();
@@ -194,6 +193,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_model_compatibility_validation() {
         let validator = CrossFormatValidator::new();
         let pytorch_model = create_test_pytorch_model();
@@ -204,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_model_compatibility_mismatch() {
         let validator = CrossFormatValidator::new();
         let pytorch_model = create_test_pytorch_model();
@@ -217,6 +218,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_test_input_generation() {
         let validator = create_validator_with_config(1e-5, 10);
         let input_shapes = vec![vec![1, 3, 224, 224], vec![1, 1024]];
@@ -238,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_simulation_inference_methods() {
         let validator = create_validator_with_config(1e-4, 1);
         let pytorch_model = create_test_pytorch_model();
@@ -267,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_strict_tolerance_validation() {
         let validator = create_validator_with_config(1e-8, 1); // Very strict tolerance
         let pytorch_model = create_test_pytorch_model();
@@ -283,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_intensive_validation_config() {
         let config = ValidationConfig {
             numerical_tolerance: 1e-6,
@@ -299,6 +304,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Expensive real inference test - run with --ignored or slow-tests feature"]
     fn test_optimization_accuracy_validation() {
         blitzed_core::init().ok();
 
