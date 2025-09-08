@@ -1,9 +1,59 @@
+# macOS
 .DS_Store
+
+# Rust
 target/
 Cargo.lock
+
+# Python
 *.pyc
 __pycache__/
 *.egg-info/
+
+# Test models and logs
 test_models/
 dev_notes.md
 Makefile
+
+# PlatformIO build files
+**/.pio/
+**/build/
+**/.vscode/
+
+# ESP32 deployment logs and temporary files
+esp32-deployment/*.log
+esp32-deployment/*.pid
+esp32-deployment/.pio/
+
+# Compiled binaries from testing
+create_model
+optimize_for_esp32
+*.exe
+*.out
+
+# Temporary files
+*.tmp
+*.temp
+
+# Python virtual environment
+blitzed_env/
+
+# Generated models and outputs
+steel_models/
+optimized_models/
+steel_optimization*.py
+
+# Framework comparison and benchmarking
+real_benchmark.py
+framework_benchmark.py
+
+# Steel model optimization tools  
+optimize_steel_models.rs
+optimize_steel_models
+
+# Sensor procurement documentation
+sensor_package_order.md
+
+# Deployment scripts and outputs
+deploy_real_nn.sh
+esp32-deployment/
