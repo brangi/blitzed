@@ -566,4 +566,137 @@ mod tests {
         // Test model is 4MB, with activations should be significantly more
         assert!(memory_usage > 5_000_000); // Should be at least 5MB
     }
+
+    #[test]
+    fn test_optimization_result_summary() {
+        let result = OptimizationResult {
+            original_size: 8_000_000,
+            optimized_size: 2_000_000,
+            compression_ratio: 0.75,
+            estimated_accuracy_loss: 3.5,
+            estimated_speedup: 2.5,
+            optimization_time_ms: 1250,
+            techniques_applied: vec!["INT8 Quantization".to_string(), "Pruning".to_string()],
+        };
+
+        let summary = result.summary();
+
+        // Verify summary contains key metrics
+        assert!(summary.contains("Optimization Summary"));
+        assert!(summary.contains("MB"));
+        assert!(summary.contains("3.50%")); // accuracy loss with 2 decimal places
+        assert!(summary.contains("2.5x")); // speedup
+        assert!(summary.contains("1250 ms"));
+        assert!(summary.contains("INT8 Quantization"));
+        assert!(summary.contains("Pruning"));
+    }
+
+    #[test]
+    fn test_meets_criteria_failure() {
+        let result = OptimizationResult {
+            original_size: 4_000_000,
+            optimized_size: 3_000_000,
+            compression_ratio: 0.25, // Below target of 0.75
+            estimated_accuracy_loss: 2.0,
+            estimated_speedup: 1.5,
+            optimization_time_ms: 1000,
+            techniques_applied: vec!["Quantization".to_string()],
+        };
+
+        let config = OptimizationConfig::default(); // target_compression_ratio: 0.75
+        assert!(!result.meets_criteria(&config));
+
+        // Test accuracy loss exceeding max
+        let result2 = OptimizationResult {
+            original_size: 4_000_000,
+            optimized_size: 1_000_000,
+            compression_ratio: 0.75,
+            estimated_accuracy_loss: 10.0, // Above max of 5.0
+            estimated_speedup: 3.0,
+            optimization_time_ms: 1000,
+            techniques_applied: vec!["Quantization".to_string()],
+        };
+        assert!(!result2.meets_criteria(&config));
+    }
+
+    #[test]
+    fn test_estimate_impact_quantization_disabled() {
+        let mut config = Config::default();
+        config.optimization.enable_quantization = false;
+        config.optimization.enable_pruning = false;
+        config.optimization.enable_distillation = false;
+
+        let optimizer = Optimizer::new(config);
+        let model = create_test_model();
+
+        let impact = optimizer.estimate_impact(&model).unwrap();
+
+        // With all optimizations disabled, should return default minimal impact
+        assert_eq!(impact.size_reduction, 0.0);
+        assert_eq!(impact.speed_improvement, 1.0);
+        assert_eq!(impact.accuracy_loss, 0.0);
+        assert_eq!(impact.memory_reduction, 0.0);
+    }
+
+    #[test]
+    fn test_build_optimization_config_raspberry_pi() {
+        let mut config = Config::default();
+        config.hardware.target = "raspberry_pi".to_string();
+
+        let optimizer = Optimizer::new(config);
+        let opt_config = optimizer.build_optimization_config();
+
+        // Raspberry Pi has different optimization strategy than ESP32
+        // Should have quantization enabled
+        assert!(opt_config.quantization.is_some());
+        // Check optimization passes (should be 1 for Raspberry Pi, not aggressive like ESP32)
+        assert_eq!(opt_config.optimization_passes, 1);
+    }
+
+    #[test]
+    fn test_build_optimization_config_unknown_target() {
+        let mut config = Config::default();
+        config.hardware.target = "unknown_device_xyz".to_string();
+
+        let optimizer = Optimizer::new(config);
+        let opt_config = optimizer.build_optimization_config();
+
+        // Unknown target should fall back to ESP32 strategy
+        assert!(opt_config.quantization.is_some());
+        // ESP32 fallback should have aggressive optimization
+        assert_eq!(opt_config.optimization_passes, 2);
+    }
+
+    #[test]
+    fn test_optimize_with_impossible_accuracy_constraint() {
+        let mut config = Config::default();
+        config.optimization.max_accuracy_loss = 0.0; // Impossible constraint
+        config.hardware.target = "raspberry_pi".to_string(); // Use target with more memory
+
+        let optimizer = Optimizer::new(config);
+        let model = create_test_model();
+
+        let result = optimizer.optimize(&model);
+
+        // Should either succeed with minimal changes or fail gracefully
+        // The optimizer should skip quantization if accuracy loss is too high
+        match result {
+            Ok(res) => {
+                // If it succeeded, techniques should be empty or minimal
+                assert!(res.estimated_accuracy_loss <= 0.1);
+            }
+            Err(e) => {
+                // Or it should fail with a clear error message
+                let error_msg = e.to_string();
+                // Could fail on compression ratio or hardware constraints
+                assert!(
+                    error_msg.contains("compression")
+                        || error_msg.contains("constraint")
+                        || error_msg.contains("Memory"),
+                    "Expected error about optimization constraints, got: {}",
+                    error_msg
+                );
+            }
+        }
+    }
 }

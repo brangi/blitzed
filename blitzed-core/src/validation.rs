@@ -874,4 +874,333 @@ mod tests {
         let count = validator.estimate_output_value_count(&model);
         assert_eq!(count, 10); // Model has output shape [1, 10] = 10 values
     }
+
+    #[test]
+    fn test_compare_model_outputs_compatible_models() {
+        let validator = CrossFormatValidator::new();
+        let pytorch_model = create_test_model(ModelFormat::PyTorch);
+        let onnx_model = create_test_model(ModelFormat::Onnx);
+
+        let result = validator
+            .compare_model_outputs(&pytorch_model, &onnx_model)
+            .unwrap();
+
+        assert_eq!(result.source_format, "PyTorch");
+        assert_eq!(result.target_format, "ONNX");
+        assert!(result.max_numerical_diff >= 0.0);
+        assert!(result.avg_numerical_diff >= 0.0);
+        assert!(result.values_compared > 0);
+    }
+
+    #[test]
+    fn test_compare_real_inference_fallback() {
+        let validator = CrossFormatValidator::new();
+        let pytorch_model = create_test_model(ModelFormat::PyTorch);
+        let onnx_model = create_test_model(ModelFormat::Onnx);
+
+        // Without pytorch/onnx features, this should use simulation fallback
+        let result = validator.compare_real_inference(&pytorch_model, &onnx_model);
+
+        assert!(result.is_ok());
+        let (max_diff, avg_diff) = result.unwrap();
+        assert!(max_diff >= 0.0);
+        assert!(avg_diff >= 0.0);
+        assert!(avg_diff <= max_diff);
+    }
+
+    #[test]
+    fn test_simulate_model_outputs_different_seeds() {
+        let validator = CrossFormatValidator::new();
+        let model = create_test_model(ModelFormat::PyTorch);
+        let input_shapes = &model.info().input_shapes;
+        let output_shapes = &model.info().output_shapes;
+
+        let inputs = validator.generate_test_inputs(input_shapes, 0).unwrap();
+
+        let outputs1 = validator
+            .simulate_model_outputs_with_seed(output_shapes, &inputs, 100)
+            .unwrap();
+        let outputs2 = validator
+            .simulate_model_outputs_with_seed(output_shapes, &inputs, 200)
+            .unwrap();
+
+        // Different seeds should produce different outputs
+        assert_eq!(outputs1.len(), outputs2.len());
+        assert_ne!(outputs1[0], outputs2[0]);
+    }
+
+    #[test]
+    fn test_generate_test_inputs_shape_and_reproducibility() {
+        let validator = CrossFormatValidator::new();
+        let input_shapes = vec![vec![1, 3, 32, 32], vec![1, 10]];
+
+        let inputs1 = validator.generate_test_inputs(&input_shapes, 0).unwrap();
+        let inputs2 = validator.generate_test_inputs(&input_shapes, 0).unwrap();
+
+        // Same seed should produce same inputs (reproducible)
+        assert_eq!(inputs1.len(), 2);
+        assert_eq!(inputs1[0].len(), 3 * 32 * 32);
+        assert_eq!(inputs1[1].len(), 10);
+        assert_eq!(inputs1, inputs2);
+
+        // Different seed should produce different inputs
+        let inputs3 = validator.generate_test_inputs(&input_shapes, 1).unwrap();
+        assert_ne!(inputs1[0], inputs3[0]);
+    }
+
+    #[test]
+    fn test_validate_complete_pipeline_end_to_end() {
+        let validator = CrossFormatValidator::new();
+        let pytorch_model = create_test_model(ModelFormat::PyTorch);
+        let onnx_model = create_test_model(ModelFormat::Onnx);
+        let optimizer = Optimizer::new(crate::Config::default());
+        let config = crate::Config::default();
+
+        let result =
+            validator.validate_complete_pipeline(&pytorch_model, &onnx_model, &optimizer, &config);
+
+        assert!(result.is_ok());
+        let (cross_format, optimization) = result.unwrap();
+        assert!(cross_format.values_compared > 0);
+        assert!(optimization.accuracy_loss >= 0.0);
+    }
+
+    #[test]
+    fn test_validate_model_batch_multiple_pairs() {
+        let validator = CrossFormatValidator::new();
+        let pair1 = (
+            create_test_model(ModelFormat::PyTorch),
+            create_test_model(ModelFormat::Onnx),
+        );
+        let pair2 = (
+            create_test_model(ModelFormat::PyTorch),
+            create_test_model(ModelFormat::Onnx),
+        );
+
+        let model_pairs = vec![pair1, pair2];
+        let results = validator.validate_model_batch(&model_pairs).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].values_compared > 0);
+        assert!(results[1].values_compared > 0);
+    }
+
+    #[test]
+    fn test_validate_model_batch_with_one_incompatible_pair() {
+        let validator = CrossFormatValidator::new();
+
+        // Create compatible pair
+        let pair1 = (
+            create_test_model(ModelFormat::PyTorch),
+            create_test_model(ModelFormat::Onnx),
+        );
+
+        // Create incompatible models (different number of outputs)
+        let pytorch_info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 3, 32, 32]],
+            output_shapes: vec![vec![1, 10], vec![1, 5]], // Two outputs
+            parameter_count: 3002,
+            model_size_bytes: 12008,
+            operations_count: 113_152,
+            layers: vec![],
+        };
+        let onnx_info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 32, 32]],
+            output_shapes: vec![vec![1, 10]], // One output (incompatible)
+            parameter_count: 3002,
+            model_size_bytes: 12008,
+            operations_count: 113_152,
+            layers: vec![],
+        };
+
+        let pytorch_model = Model {
+            info: pytorch_info,
+            data: ModelData::Raw(vec![]),
+        };
+        let onnx_model = Model {
+            info: onnx_info,
+            data: ModelData::Raw(vec![]),
+        };
+
+        let pair2 = (pytorch_model, onnx_model);
+
+        let model_pairs = vec![pair1, pair2];
+        let results = validator.validate_model_batch(&model_pairs).unwrap();
+
+        // Should return 2 results, second one should have error in metadata
+        assert_eq!(results.len(), 2);
+        // At least one result should indicate failure via error metadata
+        assert!(
+            results.iter().any(|r| r.metadata.contains_key("error"))
+                || results.iter().any(|r| !r.validation_passed)
+        );
+    }
+
+    #[test]
+    fn test_validate_optimization_consistency_fields() {
+        let validator = CrossFormatValidator::new();
+        let model = create_test_model(ModelFormat::PyTorch);
+        let optimizer = Optimizer::new(crate::Config::default());
+        let config = crate::Config::default();
+
+        let result = validator
+            .validate_optimization_consistency(&model, &optimizer, &config)
+            .unwrap();
+
+        assert!(result.original_accuracy >= 0.0);
+        assert!(result.optimized_accuracy >= 0.0);
+        assert_eq!(
+            result.accuracy_loss,
+            result.original_accuracy - result.optimized_accuracy
+        );
+        assert!(!result.techniques_applied.is_empty());
+        assert_eq!(
+            result.max_acceptable_loss,
+            validator.config.max_accuracy_loss
+        );
+    }
+
+    #[test]
+    fn test_validate_model_structure_empty_input_shapes() {
+        let validator = CrossFormatValidator::new();
+        let model_info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![], // Empty input shapes
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+        let model = Model {
+            info: model_info,
+            data: ModelData::Raw(vec![]),
+        };
+
+        let result = validator.validate_model_structure(&model, "TestModel");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("no input shapes"));
+    }
+
+    #[test]
+    fn test_validate_model_structure_empty_output_shapes() {
+        let validator = CrossFormatValidator::new();
+        let model_info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 10]],
+            output_shapes: vec![], // Empty output shapes
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+        let model = Model {
+            info: model_info,
+            data: ModelData::Raw(vec![]),
+        };
+
+        let result = validator.validate_model_structure(&model, "TestModel");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("no output shapes"));
+    }
+
+    #[test]
+    fn test_validate_model_compatibility_dimension_mismatch() {
+        let validator = CrossFormatValidator::new();
+
+        let model1_info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 3, 32, 32]],
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+        let model2_info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 32]], // Missing dimension
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+
+        let model1 = Model {
+            info: model1_info,
+            data: ModelData::Raw(vec![]),
+        };
+        let model2 = Model {
+            info: model2_info,
+            data: ModelData::Raw(vec![]),
+        };
+
+        let result = validator.validate_model_compatibility(&model1, &model2);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("dimension mismatch"));
+    }
+
+    #[test]
+    fn test_validate_model_compatibility_output_shape_mismatch() {
+        let validator = CrossFormatValidator::new();
+
+        let model1_info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 3, 32, 32]],
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+        let model2_info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 32, 32]],
+            output_shapes: vec![vec![1, 20]], // Different output shape
+            parameter_count: 100,
+            model_size_bytes: 400,
+            operations_count: 1000,
+            layers: vec![],
+        };
+
+        let model1 = Model {
+            info: model1_info,
+            data: ModelData::Raw(vec![]),
+        };
+        let model2 = Model {
+            info: model2_info,
+            data: ModelData::Raw(vec![]),
+        };
+
+        let result = validator.validate_model_compatibility(&model1, &model2);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("shape mismatch"));
+    }
+
+    #[test]
+    fn test_validator_set_config_updates_configuration() {
+        let mut validator = CrossFormatValidator::new();
+        assert_eq!(validator.config().numerical_tolerance, 1e-5);
+
+        let new_config = ValidationConfig {
+            numerical_tolerance: 1e-7,
+            max_accuracy_loss: 1.0,
+            test_input_count: 5,
+            random_seed: 999,
+            intensive_validation: true,
+        };
+
+        validator.set_config(new_config);
+        assert_eq!(validator.config().numerical_tolerance, 1e-7);
+        assert_eq!(validator.config().max_accuracy_loss, 1.0);
+        assert_eq!(validator.config().test_input_count, 5);
+        assert!(validator.config().intensive_validation);
+    }
 }

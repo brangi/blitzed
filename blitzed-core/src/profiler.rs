@@ -330,4 +330,183 @@ mod tests {
         assert!(!report.latency_constraint_met);
         assert!(!report.overall_compatible);
     }
+
+    fn create_test_model_with_layers() -> Model {
+        use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+
+        let layers = vec![LayerInfo {
+            name: "fc".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 512],
+            output_shape: vec![1, 10],
+            parameter_count: 5130, // 512*10 + 10
+            flops: 5120,
+        }];
+
+        let info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 512]],
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 5130,
+            model_size_bytes: 20520, // 5130 * 4 bytes
+            operations_count: 5120,
+            layers,
+        };
+
+        Model {
+            info,
+            data: ModelData::Raw(vec![0u8; 1000]),
+        }
+    }
+
+    #[test]
+    fn test_profile_loading() {
+        env_logger::try_init().ok();
+
+        let profiler = Profiler::new(ProfilingConfig::default());
+
+        let load_fn = || Ok(create_test_model_with_layers());
+        let result = profiler.profile_loading(load_fn);
+
+        assert!(result.is_ok());
+        let duration = result.unwrap();
+        assert!(duration.as_nanos() > 0);
+    }
+
+    #[test]
+    fn test_profile_inference() {
+        env_logger::try_init().ok();
+
+        let mut profiler = Profiler::new(ProfilingConfig {
+            warmup_runs: 2,
+            benchmark_runs: 5,
+            detailed_memory: true,
+            measure_cpu: false,
+        });
+
+        let model = create_test_model_with_layers();
+        let result = profiler.profile_inference(&model);
+
+        assert!(result.is_ok());
+        let metrics = result.unwrap();
+
+        assert!(metrics.inference_time_ms > 0);
+        assert!(metrics.memory_usage_bytes > 0);
+        assert!(metrics.throughput > 0.0);
+    }
+
+    #[test]
+    fn test_compare_models() {
+        env_logger::try_init().ok();
+
+        let mut profiler = Profiler::new(ProfilingConfig {
+            warmup_runs: 1,
+            benchmark_runs: 3,
+            detailed_memory: false,
+            measure_cpu: false,
+        });
+
+        let original = create_test_model_with_layers();
+
+        // Create optimized model with fewer parameters
+        use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+        let optimized_layers = vec![LayerInfo {
+            name: "fc".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 256],
+            output_shape: vec![1, 10],
+            parameter_count: 2570, // 256*10 + 10
+            flops: 2560,
+        }];
+
+        let optimized_info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 256]],
+            output_shapes: vec![vec![1, 10]],
+            parameter_count: 2570,
+            model_size_bytes: 10280,
+            operations_count: 2560,
+            layers: optimized_layers,
+        };
+
+        let optimized = Model {
+            info: optimized_info,
+            data: ModelData::Raw(vec![0u8; 500]),
+        };
+
+        let result = profiler.compare_models(&original, &optimized);
+        assert!(result.is_ok());
+
+        let comparison = result.unwrap();
+        assert!(comparison.speedup_ratio >= 0.0);
+        assert!(comparison.memory_reduction >= 0.0);
+        assert!(comparison.throughput_improvement >= 0.0);
+    }
+
+    #[test]
+    fn test_benchmark_constraints_pass() {
+        env_logger::try_init().ok();
+
+        let mut profiler = Profiler::new(ProfilingConfig {
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            detailed_memory: false,
+            measure_cpu: false,
+        });
+
+        let model = create_test_model_with_layers();
+
+        // Generous limits
+        let result = profiler.benchmark_constraints(&model, 100_000_000, 10000);
+        assert!(result.is_ok());
+
+        let report = result.unwrap();
+        assert!(report.memory_constraint_met);
+        assert!(report.latency_constraint_met);
+        assert!(report.overall_compatible);
+    }
+
+    #[test]
+    fn test_benchmark_constraints_fail_memory() {
+        env_logger::try_init().ok();
+
+        let mut profiler = Profiler::new(ProfilingConfig {
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            detailed_memory: false,
+            measure_cpu: false,
+        });
+
+        let model = create_test_model_with_layers();
+
+        // Memory limit too low
+        let result = profiler.benchmark_constraints(&model, 1, 10000);
+        assert!(result.is_ok());
+
+        let report = result.unwrap();
+        assert!(!report.memory_constraint_met);
+        assert!(!report.overall_compatible);
+    }
+
+    #[test]
+    fn test_benchmark_constraints_fail_latency() {
+        env_logger::try_init().ok();
+
+        let mut profiler = Profiler::new(ProfilingConfig {
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            detailed_memory: false,
+            measure_cpu: false,
+        });
+
+        let model = create_test_model_with_layers();
+
+        // Latency limit too low
+        let result = profiler.benchmark_constraints(&model, 100_000_000, 0);
+        assert!(result.is_ok());
+
+        let report = result.unwrap();
+        assert!(!report.latency_constraint_met);
+        assert!(!report.overall_compatible);
+    }
 }

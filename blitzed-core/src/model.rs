@@ -656,4 +656,109 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_create_test_model() {
+        let model = Model::create_test_model()
+            .unwrap_or_else(|e| panic!("Failed to create test model: {}", e));
+
+        // Verify basic properties
+        assert_eq!(model.info().format, ModelFormat::Onnx);
+        assert_eq!(model.info().parameter_count, 1_000_000);
+        assert_eq!(model.info().model_size_bytes, 4_000_000);
+        assert_eq!(model.info().operations_count, 500_000);
+
+        // Verify layers
+        assert_eq!(model.info().layers.len(), 4);
+        assert_eq!(model.info().layers[0].layer_type, "Conv2d");
+        assert_eq!(model.info().layers[1].layer_type, "ReLU");
+        assert_eq!(model.info().layers[2].layer_type, "MaxPool2d");
+        assert_eq!(model.info().layers[3].layer_type, "Linear");
+
+        // Verify shapes
+        assert_eq!(model.info().input_shapes, vec![vec![1, 3, 224, 224]]);
+        assert_eq!(model.info().output_shapes, vec![vec![1, 1000]]);
+    }
+
+    #[test]
+    fn test_format_extension_mapping() {
+        // Test .pb → TensorFlow
+        assert_eq!(
+            ModelFormat::from_path("model.pb"),
+            Some(ModelFormat::TensorFlow)
+        );
+        assert_eq!(ModelFormat::TensorFlow.extension(), "pb");
+
+        // Test .mlmodel → CoreML
+        assert_eq!(
+            ModelFormat::from_path("model.mlmodel"),
+            Some(ModelFormat::CoreML)
+        );
+        assert_eq!(ModelFormat::CoreML.extension(), "mlmodel");
+
+        // Test .pth → PyTorch (alternative extension)
+        assert_eq!(
+            ModelFormat::from_path("model.pth"),
+            Some(ModelFormat::PyTorch)
+        );
+    }
+
+    #[test]
+    fn test_estimate_memory_usage_multiple_inputs_outputs() {
+        let info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 224, 224], vec![1, 128]],
+            output_shapes: vec![vec![1, 1000], vec![1, 512]],
+            parameter_count: 5_000_000,
+            model_size_bytes: 20_000_000,
+            operations_count: 10_000_000,
+            layers: vec![],
+        };
+
+        let model = Model {
+            info,
+            data: ModelData::Raw(vec![0; 100]),
+        };
+
+        let estimated_memory = model.estimate_memory_usage();
+
+        // Should include all inputs and outputs
+        let input1_size = 3 * 224 * 224 * 4;
+        let input2_size = 128 * 4;
+        let output1_size = 1000 * 4;
+        let output2_size = 512 * 4;
+        let base = 20_000_000 + input1_size + input2_size + output1_size + output2_size;
+        let expected = base + (base / 4);
+
+        assert_eq!(estimated_memory, expected);
+    }
+
+    #[test]
+    fn test_check_memory_constraints_at_boundary() {
+        let info = ModelInfo {
+            format: ModelFormat::Onnx,
+            input_shapes: vec![vec![1, 3, 224, 224]],
+            output_shapes: vec![vec![1, 1000]],
+            parameter_count: 1_000_000,
+            model_size_bytes: 4_000_000,
+            operations_count: 2_000_000,
+            layers: vec![],
+        };
+
+        let model = Model {
+            info,
+            data: ModelData::Raw(vec![0; 100]),
+        };
+
+        let usage = model.estimate_memory_usage();
+
+        // Test at exact boundary - should pass
+        assert!(model.check_memory_constraints(usage).is_ok());
+
+        // Test just below boundary - should fail
+        assert!(model.check_memory_constraints(usage - 1).is_err());
+
+        // Test just above boundary - should pass
+        assert!(model.check_memory_constraints(usage + 1).is_ok());
+    }
 }

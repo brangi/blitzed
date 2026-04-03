@@ -792,4 +792,261 @@ mod tests {
         // Linear layers should contribute extra penalty
         assert!(accuracy_loss > 2.4); // Base loss would be 0.4^2 * 15 = 2.4
     }
+
+    #[test]
+    fn test_pruning_zero_param_layers() {
+        env_logger::try_init().ok();
+
+        let layers = vec![
+            create_test_layer("relu1", "relu", 0),
+            create_test_layer("maxpool1", "maxpool2d", 0),
+            create_test_layer("conv1", "conv2d", 10000),
+        ];
+        let model = create_test_model(10000, layers);
+
+        let config = PruningConfig {
+            target_sparsity: 0.5,
+            structured: false,
+            method: PruningMethod::Magnitude,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config);
+        let result = pruner.prune_magnitude(&model).unwrap();
+
+        // Zero-param layers should have zero pruning
+        assert_eq!(result.layers[0].pruned_parameters, 0);
+        assert_eq!(result.layers[1].pruned_parameters, 0);
+        assert!(result.layers[2].pruned_parameters > 0);
+    }
+
+    #[test]
+    fn test_structured_pruning_conv2d() {
+        let pruner = Pruner::new(PruningConfig {
+            structured: true,
+            target_sparsity: 0.5,
+            ..PruningConfig::default()
+        });
+
+        let conv_layer = create_test_layer("test_conv", "conv2d", 36864); // 64*64*3*3
+        let pruned_count = pruner.calculate_structured_pruning(&conv_layer, 0.5);
+
+        // Should prune entire channels
+        assert!(pruned_count > 0);
+        assert!(pruned_count <= conv_layer.parameter_count);
+    }
+
+    #[test]
+    fn test_structured_pruning_linear() {
+        let pruner = Pruner::new(PruningConfig {
+            structured: true,
+            target_sparsity: 0.5,
+            ..PruningConfig::default()
+        });
+
+        let linear_layer = create_test_layer("test_fc", "linear", 1000000); // 1000*1000
+        let pruned_count = pruner.calculate_structured_pruning(&linear_layer, 0.5);
+
+        // Should prune entire neurons
+        assert!(pruned_count > 0);
+        assert!(pruned_count <= linear_layer.parameter_count);
+    }
+
+    #[test]
+    fn test_structured_pruning_unknown_type() {
+        let pruner = Pruner::new(PruningConfig {
+            structured: true,
+            target_sparsity: 0.5,
+            ..PruningConfig::default()
+        });
+
+        let unknown_layer = create_test_layer("test_unknown", "custom_layer", 10000);
+        let pruned_count = pruner.calculate_structured_pruning(&unknown_layer, 0.5);
+
+        // Should fall back to unstructured
+        let expected = (10000.0 * 0.5) as usize;
+        assert_eq!(pruned_count, expected);
+    }
+
+    #[test]
+    fn test_accuracy_loss_structured_vs_unstructured() {
+        let structured_pruner = Pruner::new(PruningConfig {
+            structured: true,
+            target_sparsity: 0.5,
+            ..PruningConfig::default()
+        });
+
+        let unstructured_pruner = Pruner::new(PruningConfig {
+            structured: false,
+            target_sparsity: 0.5,
+            ..PruningConfig::default()
+        });
+
+        let layers = vec![PrunedLayer {
+            name: "conv1".to_string(),
+            layer_type: "conv2d".to_string(),
+            original_parameters: 10000,
+            pruned_parameters: 5000,
+            sparsity_achieved: 0.5,
+            structured_pruning_applied: false,
+        }];
+
+        let structured_loss = structured_pruner.estimate_pruning_accuracy_loss(0.5, &layers);
+        let unstructured_loss = unstructured_pruner.estimate_pruning_accuracy_loss(0.5, &layers);
+
+        // Structured pruning should have lower accuracy loss
+        assert!(structured_loss < unstructured_loss);
+    }
+
+    #[test]
+    fn test_accuracy_loss_method_multipliers() {
+        let sparsity = 0.5;
+        let layers = vec![PrunedLayer {
+            name: "conv1".to_string(),
+            layer_type: "conv2d".to_string(),
+            original_parameters: 10000,
+            pruned_parameters: 5000,
+            sparsity_achieved: 0.5,
+            structured_pruning_applied: false,
+        }];
+
+        let random_pruner = Pruner::new(PruningConfig {
+            method: PruningMethod::Random,
+            ..PruningConfig::default()
+        });
+        let magnitude_pruner = Pruner::new(PruningConfig {
+            method: PruningMethod::Magnitude,
+            ..PruningConfig::default()
+        });
+        let gradient_pruner = Pruner::new(PruningConfig {
+            method: PruningMethod::Gradient,
+            ..PruningConfig::default()
+        });
+
+        let random_loss = random_pruner.estimate_pruning_accuracy_loss(sparsity, &layers);
+        let magnitude_loss = magnitude_pruner.estimate_pruning_accuracy_loss(sparsity, &layers);
+        let gradient_loss = gradient_pruner.estimate_pruning_accuracy_loss(sparsity, &layers);
+
+        // Random should be worst (1.5x multiplier)
+        // Magnitude should be baseline (1.0x multiplier)
+        // Gradient should be best (0.8x multiplier)
+        assert!(random_loss > magnitude_loss);
+        assert!(magnitude_loss > gradient_loss);
+    }
+
+    #[test]
+    fn test_pruning_gradient_method_fallback() {
+        env_logger::try_init().ok();
+
+        let layers = vec![create_test_layer("conv1", "conv2d", 10000)];
+        let model = create_test_model(10000, layers);
+
+        let config = PruningConfig {
+            target_sparsity: 0.5,
+            structured: false,
+            method: PruningMethod::Gradient,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config);
+        let result = pruner.optimize(&model, &pruner.config).unwrap();
+
+        // Should fall back to magnitude
+        assert_eq!(result.method_used, PruningMethod::Magnitude);
+    }
+
+    #[test]
+    fn test_simulate_layer_pruning_small_model() {
+        env_logger::try_init().ok();
+
+        // Small model (<1M params)
+        let model = create_test_model(500_000, vec![]);
+
+        let config = PruningConfig {
+            target_sparsity: 0.5,
+            structured: false,
+            method: PruningMethod::Magnitude,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config);
+        let result = pruner.prune_magnitude(&model).unwrap();
+
+        // Should create small model structure
+        assert!(!result.layers.is_empty());
+        assert!(result.sparsity_ratio > 0.0);
+    }
+
+    #[test]
+    fn test_simulate_layer_pruning_medium_model() {
+        env_logger::try_init().ok();
+
+        // Medium model (1M-10M params)
+        let model = create_test_model(5_000_000, vec![]);
+
+        let config = PruningConfig {
+            target_sparsity: 0.5,
+            structured: false,
+            method: PruningMethod::Magnitude,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config);
+        let result = pruner.prune_magnitude(&model).unwrap();
+
+        // Should create medium model structure
+        assert!(!result.layers.is_empty());
+        assert_eq!(result.layers.len(), 2); // features + classifier
+    }
+
+    #[test]
+    fn test_estimate_impact_structured() {
+        let model = create_test_model(
+            1_000_000,
+            vec![
+                create_test_layer("conv", "conv2d", 500_000),
+                create_test_layer("fc", "linear", 500_000),
+            ],
+        );
+
+        let config = PruningConfig {
+            target_sparsity: 0.6,
+            structured: true,
+            method: PruningMethod::Magnitude,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config.clone());
+        let impact = pruner.estimate_impact(&model, &config).unwrap();
+
+        // Structured pruning should have slightly lower effective sparsity
+        assert!(impact.size_reduction > 0.0 && impact.size_reduction <= 1.0);
+        assert!(impact.speed_improvement > 1.0);
+        assert!(impact.accuracy_loss >= 0.0);
+    }
+
+    #[test]
+    fn test_estimate_impact_gradient_method() {
+        let model = create_test_model(
+            1_000_000,
+            vec![
+                create_test_layer("conv", "conv2d", 500_000),
+                create_test_layer("fc", "linear", 500_000),
+            ],
+        );
+
+        let config = PruningConfig {
+            target_sparsity: 0.6,
+            structured: false,
+            method: PruningMethod::Gradient,
+            fine_tune_epochs: 0,
+        };
+
+        let pruner = Pruner::new(config.clone());
+        let impact = pruner.estimate_impact(&model, &config).unwrap();
+
+        // Gradient method should have lower accuracy loss than magnitude
+        assert!(impact.accuracy_loss >= 0.0);
+        assert!(impact.size_reduction > 0.0);
+    }
 }
