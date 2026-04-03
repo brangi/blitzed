@@ -423,3 +423,307 @@ impl BenchmarkAnalysis for BenchmarkSummary {
         advantages
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::benchmarking::metrics::PerformanceMetrics;
+
+    #[test]
+    fn test_competitive_framework_names() {
+        assert_eq!(
+            CompetitiveFramework::TensorFlowLite.name(),
+            "TensorFlow Lite"
+        );
+        assert_eq!(CompetitiveFramework::OnnxRuntime.name(), "ONNX Runtime");
+        assert_eq!(CompetitiveFramework::PyTorchMobile.name(), "PyTorch Mobile");
+        assert_eq!(CompetitiveFramework::Blitzed.name(), "Blitzed");
+    }
+
+    #[test]
+    fn test_competitive_framework_short_names() {
+        assert_eq!(CompetitiveFramework::TensorFlowLite.short_name(), "TFLite");
+        assert_eq!(CompetitiveFramework::OnnxRuntime.short_name(), "ONNX");
+        assert_eq!(CompetitiveFramework::PyTorchMobile.short_name(), "PyTorch");
+        assert_eq!(CompetitiveFramework::Blitzed.short_name(), "Blitzed");
+    }
+
+    #[test]
+    fn test_hardware_platform_names() {
+        assert_eq!(HardwarePlatform::ESP32.name(), "ESP32");
+        assert_eq!(
+            HardwarePlatform::ArduinoNano33BLE.name(),
+            "Arduino Nano 33 BLE"
+        );
+        assert_eq!(HardwarePlatform::STM32F4.name(), "STM32F4");
+        assert_eq!(HardwarePlatform::RaspberryPi4.name(), "Raspberry Pi 4");
+        assert_eq!(HardwarePlatform::MobileARM.name(), "Mobile ARM");
+        assert_eq!(HardwarePlatform::X86Desktop.name(), "x86 Desktop");
+        assert_eq!(HardwarePlatform::X86Server.name(), "x86 Server");
+    }
+
+    #[test]
+    fn test_hardware_platform_memory_limits() {
+        assert_eq!(HardwarePlatform::ESP32.memory_limit(), 520 * 1024);
+        assert_eq!(
+            HardwarePlatform::ArduinoNano33BLE.memory_limit(),
+            256 * 1024
+        );
+        assert_eq!(HardwarePlatform::STM32F4.memory_limit(), 192 * 1024);
+        assert_eq!(
+            HardwarePlatform::RaspberryPi4.memory_limit(),
+            4 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::MobileARM.memory_limit(),
+            2 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::X86Desktop.memory_limit(),
+            8 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::X86Server.memory_limit(),
+            32 * 1024 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn test_hardware_platform_is_embedded() {
+        assert!(HardwarePlatform::ESP32.is_embedded());
+        assert!(HardwarePlatform::ArduinoNano33BLE.is_embedded());
+        assert!(HardwarePlatform::STM32F4.is_embedded());
+        assert!(!HardwarePlatform::RaspberryPi4.is_embedded());
+        assert!(!HardwarePlatform::MobileARM.is_embedded());
+        assert!(!HardwarePlatform::X86Desktop.is_embedded());
+        assert!(!HardwarePlatform::X86Server.is_embedded());
+    }
+
+    #[test]
+    fn test_standard_model_names() {
+        assert_eq!(StandardModel::MobileNetV2.name(), "MobileNetV2");
+        assert_eq!(StandardModel::MobileNetV3Small.name(), "MobileNetV3-Small");
+        assert_eq!(StandardModel::ResNet18.name(), "ResNet-18");
+        assert_eq!(StandardModel::EfficientNetB0.name(), "EfficientNet-B0");
+        assert_eq!(StandardModel::YoloV5Nano.name(), "YOLOv5-Nano");
+        assert_eq!(
+            StandardModel::Custom("MyModel".to_string()).name(),
+            "MyModel"
+        );
+    }
+
+    #[test]
+    fn test_standard_model_input_shapes() {
+        assert_eq!(
+            StandardModel::MobileNetV2.input_shape(),
+            vec![1, 3, 224, 224]
+        );
+        assert_eq!(
+            StandardModel::MobileNetV3Small.input_shape(),
+            vec![1, 3, 224, 224]
+        );
+        assert_eq!(StandardModel::ResNet18.input_shape(), vec![1, 3, 224, 224]);
+        assert_eq!(
+            StandardModel::EfficientNetB0.input_shape(),
+            vec![1, 3, 224, 224]
+        );
+        assert_eq!(
+            StandardModel::YoloV5Nano.input_shape(),
+            vec![1, 3, 640, 640]
+        );
+        assert_eq!(
+            StandardModel::Custom("test".to_string()).input_shape(),
+            vec![1, 3, 224, 224]
+        );
+    }
+
+    #[test]
+    fn test_standard_model_expected_size_ranges() {
+        let (min, max) = StandardModel::MobileNetV2.expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (9.0, 14.0));
+
+        let (min, max) = StandardModel::MobileNetV3Small.expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (5.0, 9.0));
+
+        let (min, max) = StandardModel::ResNet18.expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (42.0, 50.0));
+
+        let (min, max) = StandardModel::EfficientNetB0.expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (20.0, 30.0));
+
+        let (min, max) = StandardModel::YoloV5Nano.expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (3.0, 7.0));
+
+        let (min, max) = StandardModel::Custom("test".to_string()).expected_size_mb();
+        assert!(min < max);
+        assert_eq!((min, max), (1.0, 100.0));
+    }
+
+    #[test]
+    fn test_benchmark_config_default() {
+        let config = BenchmarkConfig::default();
+
+        assert_eq!(config.frameworks.len(), 3);
+        assert!(config.frameworks.contains(&CompetitiveFramework::Blitzed));
+        assert!(config
+            .frameworks
+            .contains(&CompetitiveFramework::TensorFlowLite));
+        assert!(config
+            .frameworks
+            .contains(&CompetitiveFramework::OnnxRuntime));
+
+        assert_eq!(config.platforms.len(), 3);
+        assert!(config.platforms.contains(&HardwarePlatform::X86Desktop));
+        assert!(config.platforms.contains(&HardwarePlatform::ESP32));
+        assert!(config.platforms.contains(&HardwarePlatform::RaspberryPi4));
+
+        assert_eq!(config.models.len(), 2);
+        assert!(config.models.contains(&StandardModel::MobileNetV2));
+        assert!(config.models.contains(&StandardModel::ResNet18));
+
+        assert_eq!(config.warmup_runs, 5);
+        assert_eq!(config.benchmark_runs, 10);
+        assert_eq!(config.timeout, Duration::from_secs(30));
+        assert!(config.validate_accuracy);
+        assert!(!config.measure_power);
+    }
+
+    #[test]
+    fn test_benchmark_summary_analysis() {
+        // Create mock performance metrics
+        let blitzed_metrics = PerformanceMetrics {
+            model_size_bytes: 10_000_000, // 10MB
+            avg_inference_time_ms: 50,
+            inference_time_stddev_ms: 5.0,
+            peak_memory_usage: 20_000_000, // 20MB
+            avg_memory_usage: 15_000_000,  // 15MB
+            throughput_ops_per_sec: 20.0,
+            accuracy_score: 0.95,
+            power_consumption_mw: Some(100.0),
+            cpu_utilization: 60.0,
+            memory_efficiency: 0.95 / 20_000_000.0,
+            custom_metrics: std::collections::HashMap::new(),
+        };
+
+        let tflite_metrics = PerformanceMetrics {
+            model_size_bytes: 15_000_000, // 15MB
+            avg_inference_time_ms: 100,
+            inference_time_stddev_ms: 10.0,
+            peak_memory_usage: 30_000_000, // 30MB
+            avg_memory_usage: 25_000_000,  // 25MB
+            throughput_ops_per_sec: 10.0,
+            accuracy_score: 0.93,
+            power_consumption_mw: Some(150.0),
+            cpu_utilization: 70.0,
+            memory_efficiency: 0.93 / 30_000_000.0,
+            custom_metrics: std::collections::HashMap::new(),
+        };
+
+        let onnx_metrics = PerformanceMetrics {
+            model_size_bytes: 12_000_000, // 12MB
+            avg_inference_time_ms: 80,
+            inference_time_stddev_ms: 8.0,
+            peak_memory_usage: 25_000_000, // 25MB
+            avg_memory_usage: 20_000_000,  // 20MB
+            throughput_ops_per_sec: 12.5,
+            accuracy_score: 0.94,
+            power_consumption_mw: Some(120.0),
+            cpu_utilization: 65.0,
+            memory_efficiency: 0.94 / 25_000_000.0,
+            custom_metrics: std::collections::HashMap::new(),
+        };
+
+        // Create benchmark results
+        let results = vec![
+            BenchmarkResult {
+                framework: CompetitiveFramework::Blitzed,
+                platform: HardwarePlatform::X86Desktop,
+                model: StandardModel::MobileNetV2,
+                metrics: blitzed_metrics,
+                success: true,
+                error: None,
+            },
+            BenchmarkResult {
+                framework: CompetitiveFramework::TensorFlowLite,
+                platform: HardwarePlatform::X86Desktop,
+                model: StandardModel::MobileNetV2,
+                metrics: tflite_metrics,
+                success: true,
+                error: None,
+            },
+            BenchmarkResult {
+                framework: CompetitiveFramework::OnnxRuntime,
+                platform: HardwarePlatform::X86Desktop,
+                model: StandardModel::MobileNetV2,
+                metrics: onnx_metrics,
+                success: true,
+                error: None,
+            },
+        ];
+
+        let statistics = BenchmarkStatistics {
+            total_benchmarks: 3,
+            successful_benchmarks: 3,
+            average_blitzed_speedup: 1.8,
+            average_blitzed_compression: 1.35,
+            average_accuracy_retention: 0.98,
+            best_platform: Some(HardwarePlatform::X86Desktop),
+            most_challenging_model: None,
+        };
+
+        let summary = BenchmarkSummary {
+            results,
+            comparisons: HashMap::new(),
+            statistics,
+            timestamp: chrono::Utc::now(),
+            total_duration: Duration::from_secs(10),
+        };
+
+        // Test summary() returns expected format
+        let summary_text = summary.summary();
+        assert!(summary_text.contains("Total tests: 3"));
+        assert!(summary_text.contains("Success rate: 100.0%"));
+        assert!(summary_text.contains("Average Blitzed speedup: 1.80x"));
+        assert!(summary_text.contains("Average compression: 1.35x"));
+        assert!(summary_text.contains("Accuracy retention: 98.0%"));
+        assert!(summary_text.contains("Duration: 10.0s"));
+
+        // Test best_framework() returns correct results
+        assert_eq!(
+            summary.best_framework("latency"),
+            Some(CompetitiveFramework::Blitzed)
+        );
+        assert_eq!(
+            summary.best_framework("memory"),
+            Some(CompetitiveFramework::Blitzed)
+        );
+        assert_eq!(
+            summary.best_framework("size"),
+            Some(CompetitiveFramework::Blitzed)
+        );
+        assert_eq!(
+            summary.best_framework("accuracy"),
+            Some(CompetitiveFramework::Blitzed)
+        );
+        assert_eq!(
+            summary.best_framework("throughput"),
+            Some(CompetitiveFramework::Blitzed)
+        );
+
+        // Test blitzed_advantage() returns advantages
+        let advantages = summary.blitzed_advantage();
+        assert!(advantages.contains_key("speed_advantage"));
+        assert!(advantages.contains_key("memory_advantage"));
+        assert!(advantages.contains_key("size_advantage"));
+
+        // Blitzed should have advantages (values > 1.0)
+        assert!(advantages["speed_advantage"] > 1.0);
+        assert!(advantages["memory_advantage"] > 1.0);
+        assert!(advantages["size_advantage"] > 1.0);
+    }
+}

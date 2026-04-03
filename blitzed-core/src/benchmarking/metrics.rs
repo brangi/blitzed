@@ -439,3 +439,282 @@ pub mod comparison {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_performance_metrics_default() {
+        let metrics = PerformanceMetrics::default();
+
+        assert_eq!(metrics.model_size_bytes, 0);
+        assert_eq!(metrics.avg_inference_time_ms, 0);
+        assert_eq!(metrics.inference_time_stddev_ms, 0.0);
+        assert_eq!(metrics.peak_memory_usage, 0);
+        assert_eq!(metrics.avg_memory_usage, 0);
+        assert_eq!(metrics.throughput_ops_per_sec, 0.0);
+        assert_eq!(metrics.accuracy_score, 0.0);
+        assert!(metrics.power_consumption_mw.is_none());
+        assert_eq!(metrics.cpu_utilization, 0.0);
+        assert_eq!(metrics.memory_efficiency, 0.0);
+        assert!(metrics.custom_metrics.is_empty());
+    }
+
+    #[test]
+    fn test_metrics_collector_new_and_start() {
+        let mut collector = MetricsCollector::new();
+
+        // Should be able to start
+        collector.start();
+
+        // After start, should have cleared any previous data
+        assert!(collector.inference_times.is_empty());
+        assert!(collector.memory_samples.is_empty());
+        assert!(collector.cpu_samples.is_empty());
+        assert!(collector.power_samples.is_empty());
+        assert!(collector.start_time.is_some());
+    }
+
+    #[test]
+    fn test_metrics_collector_record_and_finalize() {
+        let mut collector = MetricsCollector::new();
+        collector.start();
+
+        // Record several inference times
+        collector.record_inference_time(Duration::from_millis(100));
+        collector.record_inference_time(Duration::from_millis(110));
+        collector.record_inference_time(Duration::from_millis(90));
+
+        // Record memory samples
+        collector.record_memory_usage(1_000_000);
+        collector.record_memory_usage(1_200_000);
+        collector.record_memory_usage(1_100_000);
+
+        // Record CPU samples
+        collector.record_cpu_utilization(45.0);
+        collector.record_cpu_utilization(50.0);
+        collector.record_cpu_utilization(55.0);
+
+        // Record power samples
+        collector.record_power_consumption(120.0);
+        collector.record_power_consumption(125.0);
+
+        let metrics = collector.finalize(500_000, 0.85);
+
+        // Verify computed metrics
+        assert_eq!(metrics.model_size_bytes, 500_000);
+        assert!(metrics.avg_inference_time_ms > 0);
+        assert_eq!(metrics.avg_inference_time_ms, 100); // Average of 100, 110, 90
+        assert!(metrics.inference_time_stddev_ms > 0.0);
+        assert_eq!(metrics.peak_memory_usage, 1_200_000);
+        assert!(metrics.avg_memory_usage > 0);
+        assert!(metrics.avg_memory_usage <= metrics.peak_memory_usage);
+        assert_eq!(metrics.avg_memory_usage, 1_100_000); // Average of samples
+        assert!(metrics.throughput_ops_per_sec > 0.0);
+        assert_eq!(metrics.accuracy_score, 0.85);
+        assert!(metrics.power_consumption_mw.is_some());
+        assert_eq!(metrics.power_consumption_mw.unwrap(), 122.5); // Average of 120, 125
+        assert!(metrics.cpu_utilization > 0.0);
+        assert_eq!(metrics.cpu_utilization, 50.0); // Average of 45, 50, 55
+        assert!(metrics.memory_efficiency > 0.0);
+    }
+
+    #[test]
+    fn test_metrics_collector_finalize_empty() {
+        let collector = MetricsCollector::new();
+        let metrics = collector.finalize(1_000_000, 0.9);
+
+        // With no data recorded, most metrics should be zero
+        assert_eq!(metrics.model_size_bytes, 1_000_000);
+        assert_eq!(metrics.avg_inference_time_ms, 0);
+        assert_eq!(metrics.inference_time_stddev_ms, 0.0);
+        assert_eq!(metrics.peak_memory_usage, 0);
+        assert_eq!(metrics.avg_memory_usage, 0);
+        assert_eq!(metrics.throughput_ops_per_sec, 0.0);
+        assert_eq!(metrics.accuracy_score, 0.9);
+        assert!(metrics.power_consumption_mw.is_none());
+        assert_eq!(metrics.cpu_utilization, 0.0);
+        assert_eq!(metrics.memory_efficiency, 0.0);
+    }
+
+    #[test]
+    fn test_metrics_collector_finalize_with_power() {
+        let mut collector = MetricsCollector::new();
+        collector.start();
+
+        // Record only power samples
+        collector.record_power_consumption(100.0);
+        collector.record_power_consumption(150.0);
+        collector.record_power_consumption(125.0);
+
+        let metrics = collector.finalize(100_000, 0.8);
+
+        // Power consumption should be average
+        assert!(metrics.power_consumption_mw.is_some());
+        assert_eq!(metrics.power_consumption_mw.unwrap(), 125.0);
+    }
+
+    #[test]
+    fn test_simulate_performance_metrics_deterministic() {
+        let metrics1 = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
+
+        let metrics2 = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
+
+        // Same inputs should produce identical results
+        assert_eq!(metrics1.model_size_bytes, metrics2.model_size_bytes);
+        assert_eq!(
+            metrics1.avg_inference_time_ms,
+            metrics2.avg_inference_time_ms
+        );
+        assert_eq!(metrics1.peak_memory_usage, metrics2.peak_memory_usage);
+        assert_eq!(metrics1.accuracy_score, metrics2.accuracy_score);
+        assert_eq!(metrics1.cpu_utilization, metrics2.cpu_utilization);
+    }
+
+    #[test]
+    fn test_simulate_performance_metrics_framework_differences() {
+        let blitzed_metrics =
+            simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
+
+        let tflite_metrics =
+            simulate_performance_metrics("TensorFlow Lite", "MobileNetV2", "ESP32", 1_000_000);
+
+        // Different frameworks should produce different metrics
+        assert_ne!(
+            blitzed_metrics.model_size_bytes,
+            tflite_metrics.model_size_bytes
+        );
+        assert_ne!(
+            blitzed_metrics.avg_inference_time_ms,
+            tflite_metrics.avg_inference_time_ms
+        );
+    }
+
+    #[test]
+    fn test_simulate_performance_metrics_blitzed_characteristics() {
+        let metrics = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
+
+        // Blitzed should have reasonable non-zero values
+        assert!(metrics.model_size_bytes > 0);
+        assert!(metrics.avg_inference_time_ms > 0);
+        assert!(metrics.peak_memory_usage > 0);
+        assert!(metrics.avg_memory_usage > 0);
+        assert!(metrics.throughput_ops_per_sec > 0.0);
+        assert!(metrics.accuracy_score > 0.0);
+        assert!(metrics.accuracy_score <= 1.0);
+
+        // ESP32 should have power consumption
+        assert!(metrics.power_consumption_mw.is_some());
+
+        // CPU utilization should be within valid range
+        assert!(metrics.cpu_utilization >= 0.0);
+        assert!(metrics.cpu_utilization <= 100.0);
+    }
+
+    #[test]
+    fn test_benchmark_runner_new() {
+        let runner = BenchmarkRunner::new(2, 5, Duration::from_secs(5));
+
+        assert_eq!(runner.warmup_runs, 2);
+        assert_eq!(runner.benchmark_runs, 5);
+        assert_eq!(runner.timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_benchmark_runner_run() {
+        let runner = BenchmarkRunner::new(2, 3, Duration::from_secs(5));
+
+        let mut counter = 0;
+        let result = runner.run_benchmark(|| {
+            counter += 1;
+            Ok(())
+        });
+
+        assert!(result.is_ok());
+        let collector = result.unwrap();
+
+        // Should have run warmup + benchmark iterations
+        assert_eq!(counter, 5); // 2 warmup + 3 benchmark
+
+        // Collector should have recorded data from benchmark runs only
+        assert_eq!(collector.inference_times.len(), 3);
+        assert!(!collector.memory_samples.is_empty());
+        assert!(!collector.cpu_samples.is_empty());
+    }
+
+    #[test]
+    fn test_compare_metrics() {
+        let baseline = PerformanceMetrics {
+            model_size_bytes: 1_000_000,
+            avg_inference_time_ms: 100,
+            inference_time_stddev_ms: 10.0,
+            peak_memory_usage: 2_000_000,
+            avg_memory_usage: 1_800_000,
+            throughput_ops_per_sec: 10.0,
+            accuracy_score: 0.85,
+            power_consumption_mw: Some(150.0),
+            cpu_utilization: 60.0,
+            memory_efficiency: 0.85 / 2_000_000.0,
+            custom_metrics: std::collections::HashMap::new(),
+        };
+
+        let target = PerformanceMetrics {
+            model_size_bytes: 700_000,
+            avg_inference_time_ms: 80,
+            inference_time_stddev_ms: 8.0,
+            peak_memory_usage: 1_400_000,
+            avg_memory_usage: 1_200_000,
+            throughput_ops_per_sec: 12.5,
+            accuracy_score: 0.86,
+            power_consumption_mw: Some(120.0),
+            cpu_utilization: 50.0,
+            memory_efficiency: 0.86 / 1_400_000.0,
+            custom_metrics: std::collections::HashMap::new(),
+        };
+
+        let comparison = comparison::compare_metrics(&baseline, &target);
+
+        // Speedup: 100/80 = 1.25x
+        assert!((comparison.speedup - 1.25).abs() < 0.01);
+
+        // Size reduction: 1_000_000/700_000 ≈ 1.43x
+        assert!((comparison.size_reduction - 1.428571).abs() < 0.01);
+
+        // Memory efficiency should have improved
+        assert!(comparison.memory_efficiency_gain > 1.0);
+
+        // Accuracy difference: 0.86 - 0.85 = 0.01
+        assert!((comparison.accuracy_difference - 0.01).abs() < 0.001);
+
+        // Throughput improvement: 12.5/10.0 = 1.25x
+        assert!((comparison.throughput_improvement - 1.25).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_metrics_comparison_summary() {
+        let comparison = comparison::MetricsComparison {
+            speedup: 1.5,
+            size_reduction: 2.0,
+            memory_efficiency_gain: 1.8,
+            accuracy_difference: 0.02,
+            throughput_improvement: 1.6,
+        };
+
+        let summary = comparison.summary();
+
+        // Verify summary contains expected keywords and values
+        assert!(summary.contains("Performance Comparison"));
+        assert!(summary.contains("Speedup"));
+        assert!(summary.contains("1.50"));
+        assert!(summary.contains("Size reduction"));
+        assert!(summary.contains("2.00"));
+        assert!(summary.contains("Memory efficiency"));
+        assert!(summary.contains("1.80"));
+        assert!(summary.contains("Accuracy change"));
+        assert!(summary.contains("2.0%"));
+        assert!(summary.contains("Throughput improvement"));
+        assert!(summary.contains("1.60"));
+    }
+}

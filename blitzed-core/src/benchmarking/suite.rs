@@ -684,3 +684,201 @@ impl BenchmarkSuite {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::benchmarking::{
+        BenchmarkConfig, CompetitiveFramework, HardwarePlatform, StandardModel,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn test_benchmark_suite_new() {
+        // Create a minimal config with custom settings
+        let config = BenchmarkConfig {
+            frameworks: vec![CompetitiveFramework::Blitzed],
+            platforms: vec![HardwarePlatform::X86Desktop],
+            models: vec![StandardModel::MobileNetV2],
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            timeout: Duration::from_secs(30),
+            validate_accuracy: false,
+            measure_power: false,
+        };
+
+        // Should not panic
+        let _suite = BenchmarkSuite::new(config);
+    }
+
+    #[test]
+    fn test_benchmark_suite_with_default_config() {
+        // Create with default config - should not panic
+        let _suite = BenchmarkSuite::with_default_config();
+    }
+
+    #[test]
+    fn test_run_benchmarks_single_framework() {
+        // Create suite with only Blitzed framework, single platform, single model
+        let config = BenchmarkConfig {
+            frameworks: vec![CompetitiveFramework::Blitzed],
+            platforms: vec![HardwarePlatform::X86Desktop],
+            models: vec![StandardModel::MobileNetV2],
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            timeout: Duration::from_secs(30),
+            validate_accuracy: false,
+            measure_power: false,
+        };
+
+        let suite = BenchmarkSuite::new(config);
+        let summary = suite.run_benchmarks().expect("Benchmark should succeed");
+
+        // Should have exactly 1 result (1 framework x 1 platform x 1 model)
+        assert_eq!(summary.results.len(), 1);
+
+        // The single result should be successful
+        assert!(summary.results[0].success);
+        assert_eq!(summary.results[0].framework, CompetitiveFramework::Blitzed);
+        assert_eq!(summary.results[0].platform, HardwarePlatform::X86Desktop);
+        assert_eq!(summary.results[0].model, StandardModel::MobileNetV2);
+        assert!(summary.results[0].error.is_none());
+    }
+
+    #[test]
+    fn test_run_benchmarks_multiple_frameworks() {
+        // Test with both Blitzed and TensorFlow Lite frameworks
+        let config = BenchmarkConfig {
+            frameworks: vec![
+                CompetitiveFramework::Blitzed,
+                CompetitiveFramework::TensorFlowLite,
+            ],
+            platforms: vec![HardwarePlatform::X86Desktop],
+            models: vec![StandardModel::MobileNetV2],
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            timeout: Duration::from_secs(30),
+            validate_accuracy: false,
+            measure_power: false,
+        };
+
+        let suite = BenchmarkSuite::new(config);
+        let summary = suite.run_benchmarks().expect("Benchmark should succeed");
+
+        // Should have exactly 2 results (2 frameworks x 1 platform x 1 model)
+        assert_eq!(summary.results.len(), 2);
+
+        // Verify we have one result from each framework
+        let blitzed_results: Vec<_> = summary
+            .results
+            .iter()
+            .filter(|r| r.framework == CompetitiveFramework::Blitzed)
+            .collect();
+        let tflite_results: Vec<_> = summary
+            .results
+            .iter()
+            .filter(|r| r.framework == CompetitiveFramework::TensorFlowLite)
+            .collect();
+
+        assert_eq!(blitzed_results.len(), 1);
+        assert_eq!(tflite_results.len(), 1);
+    }
+
+    #[test]
+    fn test_run_benchmarks_has_comparisons() {
+        // Test that comparisons are calculated when we have multiple frameworks
+        let config = BenchmarkConfig {
+            frameworks: vec![
+                CompetitiveFramework::Blitzed,
+                CompetitiveFramework::TensorFlowLite,
+            ],
+            platforms: vec![HardwarePlatform::X86Desktop],
+            models: vec![StandardModel::MobileNetV2],
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            timeout: Duration::from_secs(30),
+            validate_accuracy: false,
+            measure_power: false,
+        };
+
+        let suite = BenchmarkSuite::new(config);
+        let summary = suite.run_benchmarks().expect("Benchmark should succeed");
+
+        // Comparisons should not be empty with multiple frameworks
+        assert!(!summary.comparisons.is_empty());
+
+        // Should have comparisons between Blitzed and TFLite in both directions
+        let has_blitzed_vs_tflite = summary.comparisons.keys().any(|(b, t)| {
+            *b == CompetitiveFramework::Blitzed && *t == CompetitiveFramework::TensorFlowLite
+        });
+        let has_tflite_vs_blitzed = summary.comparisons.keys().any(|(b, t)| {
+            *b == CompetitiveFramework::TensorFlowLite && *t == CompetitiveFramework::Blitzed
+        });
+
+        assert!(has_blitzed_vs_tflite || has_tflite_vs_blitzed);
+    }
+
+    #[test]
+    fn test_run_benchmarks_statistics() {
+        // Verify statistics are calculated correctly
+        let config = BenchmarkConfig {
+            frameworks: vec![CompetitiveFramework::Blitzed],
+            platforms: vec![HardwarePlatform::X86Desktop, HardwarePlatform::MobileARM],
+            models: vec![StandardModel::MobileNetV2, StandardModel::ResNet18],
+            warmup_runs: 1,
+            benchmark_runs: 2,
+            timeout: Duration::from_secs(30),
+            validate_accuracy: false,
+            measure_power: false,
+        };
+
+        let suite = BenchmarkSuite::new(config);
+        let summary = suite.run_benchmarks().expect("Benchmark should succeed");
+
+        // Total benchmarks = 1 framework x 2 platforms x 2 models = 4
+        assert_eq!(summary.statistics.total_benchmarks, 4);
+
+        // All should succeed
+        assert_eq!(summary.statistics.successful_benchmarks, 4);
+    }
+
+    #[test]
+    fn test_run_benchmarks_all_standard_models() {
+        // Test all standard model types
+        let models = vec![
+            StandardModel::MobileNetV2,
+            StandardModel::MobileNetV3Small,
+            StandardModel::ResNet18,
+            StandardModel::EfficientNetB0,
+            StandardModel::YoloV5Nano,
+            StandardModel::Custom("test".to_string()),
+        ];
+
+        for model in models {
+            let config = BenchmarkConfig {
+                frameworks: vec![CompetitiveFramework::Blitzed],
+                platforms: vec![HardwarePlatform::X86Desktop],
+                models: vec![model.clone()],
+                warmup_runs: 1,
+                benchmark_runs: 2,
+                timeout: Duration::from_secs(30),
+                validate_accuracy: false,
+                measure_power: false,
+            };
+
+            let suite = BenchmarkSuite::new(config);
+            let summary = suite
+                .run_benchmarks()
+                .unwrap_or_else(|_| panic!("Benchmark should succeed for {:?}", model));
+
+            // Each model should produce 1 successful result
+            assert_eq!(summary.results.len(), 1);
+            assert!(
+                summary.results[0].success,
+                "Model {:?} should succeed",
+                model
+            );
+            assert_eq!(summary.results[0].model, model);
+        }
+    }
+}
