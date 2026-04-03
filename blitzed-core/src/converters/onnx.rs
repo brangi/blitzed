@@ -258,3 +258,62 @@ impl Default for OnnxConverter {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::converters::ModelConverter;
+    use crate::model::{ModelData, ModelFormat, ModelInfo};
+
+    #[test]
+    fn test_onnx_converter_new() {
+        let _converter = OnnxConverter::new();
+    }
+
+    #[test]
+    fn test_onnx_converter_default() {
+        let _converter: OnnxConverter = Default::default();
+    }
+
+    #[test]
+    fn test_onnx_supported_extensions() {
+        let converter = OnnxConverter::new();
+        assert_eq!(converter.supported_extensions(), &["onnx"]);
+    }
+
+    #[test]
+    fn test_onnx_load_model_without_feature() {
+        let converter = OnnxConverter::new();
+        let result = converter.load_model("/nonexistent.onnx");
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::UnsupportedFormat { .. }) => {}
+            _ => panic!("Expected UnsupportedFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_onnx_save_model_not_implemented() {
+        let converter = OnnxConverter::new();
+        let model = Model {
+            info: ModelInfo {
+                format: ModelFormat::Onnx,
+                input_shapes: vec![vec![1, 3, 224, 224]],
+                output_shapes: vec![vec![1, 1000]],
+                parameter_count: 1000,
+                model_size_bytes: 4000,
+                operations_count: 2000,
+                layers: vec![],
+            },
+            data: ModelData::Raw(vec![0u8; 100]),
+        };
+        let result = converter.save_model(&model, "/tmp/test.onnx");
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::Internal(msg)) => {
+                assert!(msg.contains("ONNX saving not implemented"));
+            }
+            _ => panic!("Expected Internal error"),
+        }
+    }
+}

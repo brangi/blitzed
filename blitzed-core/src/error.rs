@@ -106,3 +106,93 @@ impl From<candle_core::Error> for BlitzedError {
         BlitzedError::Internal(format!("Candle error: {}", err))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_display_model_load() {
+        let error = BlitzedError::ModelLoad("test".into());
+        let display = error.to_string();
+        assert!(display.contains("Model loading error: test"));
+    }
+
+    #[test]
+    fn test_error_display_unsupported_format() {
+        let error = BlitzedError::UnsupportedFormat { format: "X".into() };
+        let display = error.to_string();
+        assert!(display.contains("X"));
+    }
+
+    #[test]
+    fn test_error_display_optimization_failed() {
+        let error = BlitzedError::OptimizationFailed { reason: "R".into() };
+        let display = error.to_string();
+        assert!(display.contains("R"));
+    }
+
+    #[test]
+    fn test_error_display_tensor_error() {
+        let error = BlitzedError::TensorError {
+            message: "M".into(),
+        };
+        let display = error.to_string();
+        assert!(display.contains("M"));
+    }
+
+    #[test]
+    fn test_error_display_unsupported_target() {
+        let error = BlitzedError::UnsupportedTarget { target: "T".into() };
+        let display = error.to_string();
+        assert!(display.contains("T"));
+    }
+
+    #[test]
+    fn test_error_display_hardware_constraint() {
+        let error = BlitzedError::HardwareConstraint {
+            constraint: "C".into(),
+        };
+        let display = error.to_string();
+        assert!(display.contains("C"));
+    }
+
+    #[test]
+    fn test_error_display_accuracy_threshold() {
+        let error = BlitzedError::AccuracyThreshold {
+            threshold: 5.0,
+            actual: 8.0,
+        };
+        let display = error.to_string();
+        assert!(display.contains("5"));
+        assert!(display.contains("8"));
+    }
+
+    #[test]
+    fn test_error_display_memory_limit() {
+        let error = BlitzedError::MemoryLimit {
+            used: 200,
+            limit: 100,
+        };
+        let display = error.to_string();
+        assert!(display.contains("200"));
+        assert!(display.contains("100"));
+    }
+
+    #[test]
+    fn test_error_from_io() {
+        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        let blitzed_error = BlitzedError::from(io_error);
+        let display = blitzed_error.to_string();
+        assert!(display.contains("test"));
+    }
+
+    #[test]
+    fn test_error_from_serde() {
+        let result: std::result::Result<String, _> = serde_json::from_str("invalid");
+        let serde_error = result.unwrap_err();
+        let blitzed_error = BlitzedError::from(serde_error);
+        let display = blitzed_error.to_string();
+        assert!(display.contains("Serialization"));
+    }
+}

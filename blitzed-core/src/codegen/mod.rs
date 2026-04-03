@@ -104,3 +104,87 @@ impl Default for UniversalCodeGenerator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+    use crate::Model;
+
+    fn create_test_model() -> Model {
+        let layers = vec![LayerInfo {
+            name: "fc1".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 16],
+            output_shape: vec![1, 8],
+            parameter_count: 136,
+            flops: 128,
+        }];
+        let info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 16]],
+            output_shapes: vec![vec![1, 8]],
+            parameter_count: 136,
+            model_size_bytes: 544,
+            operations_count: 128,
+            layers,
+        };
+        Model {
+            info,
+            data: ModelData::Raw(vec![0u8; 544]),
+        }
+    }
+
+    #[test]
+    fn test_universal_codegen_new() {
+        let _ = UniversalCodeGenerator::new();
+    }
+
+    #[test]
+    fn test_universal_codegen_default() {
+        let _ = UniversalCodeGenerator::default();
+    }
+
+    #[test]
+    fn test_universal_codegen_list_targets() {
+        let gen = UniversalCodeGenerator::new();
+        let targets = gen.list_targets();
+        assert_eq!(targets.len(), 5);
+        assert!(targets.contains(&"arduino"));
+        assert!(targets.contains(&"esp32"));
+        assert!(targets.contains(&"c"));
+        assert!(targets.contains(&"raspberry_pi"));
+        assert!(targets.contains(&"stm32"));
+    }
+
+    #[test]
+    fn test_universal_codegen_generate_c() {
+        let gen = UniversalCodeGenerator::new();
+        let model = create_test_model();
+        let dir = std::env::temp_dir().join(format!("blitzed_codegen_c_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|_| panic!("Failed to create temp directory: {}", dir.display()));
+
+        let result = gen.generate("c", &model, &dir);
+        assert!(result.is_ok(), "generate failed: {:?}", result.err());
+
+        let generated = result.unwrap();
+        assert!(!generated.implementation_file.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_universal_codegen_generate_unknown() {
+        let gen = UniversalCodeGenerator::new();
+        let model = create_test_model();
+        let dir =
+            std::env::temp_dir().join(format!("blitzed_codegen_unknown_{}", std::process::id()));
+
+        let result = gen.generate("unknown", &model, &dir);
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

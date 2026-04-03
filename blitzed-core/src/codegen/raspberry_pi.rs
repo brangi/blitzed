@@ -389,3 +389,89 @@ impl Default for RaspberryPiCodeGen {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+    use crate::Model;
+
+    fn create_test_model() -> Model {
+        let layers = vec![LayerInfo {
+            name: "fc1".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 16],
+            output_shape: vec![1, 8],
+            parameter_count: 136,
+            flops: 128,
+        }];
+        let info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 16]],
+            output_shapes: vec![vec![1, 8]],
+            parameter_count: 136,
+            model_size_bytes: 544,
+            operations_count: 128,
+            layers,
+        };
+        Model {
+            info,
+            data: ModelData::Raw(vec![0u8; 544]),
+        }
+    }
+
+    #[test]
+    fn test_rpi_codegen_new() {
+        let _ = RaspberryPiCodeGen::new();
+    }
+
+    #[test]
+    fn test_rpi_generate() {
+        let gen = RaspberryPiCodeGen::new();
+        let model = create_test_model();
+        let dir = std::env::temp_dir().join(format!("blitzed_rpi_gen_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|_| panic!("Failed to create temp directory: {}", dir.display()));
+
+        let result = gen.generate(&model, &dir);
+        assert!(result.is_ok());
+
+        let generated = result.unwrap();
+        assert!(!generated.implementation_file.is_empty());
+        assert!(generated.implementation_file.contains("Raspberry Pi"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_rpi_target_name() {
+        let gen = RaspberryPiCodeGen::new();
+        assert_eq!(gen.target_name(), "raspberry_pi");
+    }
+
+    #[test]
+    fn test_rpi_dependencies() {
+        let gen = RaspberryPiCodeGen::new();
+        let deps = gen.dependencies();
+        assert!(!deps.is_empty());
+    }
+
+    #[test]
+    fn test_rpi_generated_code_has_build_config() {
+        let gen = RaspberryPiCodeGen::new();
+        let model = create_test_model();
+        let dir = std::env::temp_dir().join(format!("blitzed_rpi_build_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|_| panic!("Failed to create temp directory: {}", dir.display()));
+
+        let result = gen.generate(&model, &dir);
+        assert!(result.is_ok());
+
+        let generated = result.unwrap();
+        assert!(generated.build_config.is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

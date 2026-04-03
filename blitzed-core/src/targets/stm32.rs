@@ -62,3 +62,43 @@ impl Default for Stm32Target {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stm32_constraints() {
+        let target = Stm32Target::new();
+        let constraints = target.constraints();
+        assert_eq!(constraints.memory_limit, 131072);
+        assert_eq!(constraints.storage_limit, 1048576);
+        assert_eq!(constraints.cpu_frequency, 72);
+        assert_eq!(constraints.architecture, "ARM Cortex-M");
+        assert_eq!(constraints.word_size, 32);
+        assert!(constraints.has_fpu);
+        assert!(constraints.accelerators.is_empty());
+    }
+
+    #[test]
+    fn test_stm32_name() {
+        let target = Stm32Target::new();
+        assert_eq!(target.name(), "STM32");
+    }
+
+    #[test]
+    fn test_stm32_optimization_strategy() {
+        let target = Stm32Target::new();
+        let strategy = target.optimization_strategy();
+        assert!(strategy.aggressive_quantization);
+        assert!(strategy.enable_pruning);
+        assert_eq!(strategy.target_precision, "int8");
+        assert!(strategy.memory_optimization);
+        assert!(strategy.speed_optimization);
+    }
+
+    #[test]
+    fn test_stm32_default() {
+        let _target = Stm32Target::default();
+    }
+}

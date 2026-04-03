@@ -141,3 +141,69 @@ impl Default for TargetRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_target_registry_new() {
+        let _registry = TargetRegistry::new();
+    }
+
+    #[test]
+    fn test_target_registry_list_targets() {
+        let registry = TargetRegistry::new();
+        let targets = registry.list_targets();
+        assert_eq!(targets.len(), 6);
+    }
+
+    #[test]
+    fn test_target_registry_get_known_target() {
+        let registry = TargetRegistry::new();
+        let result = registry.get_target("esp32");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_target_registry_get_unknown_target() {
+        let registry = TargetRegistry::new();
+        let result = registry.get_target("unknown");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_target_registry_default() {
+        let _registry = TargetRegistry::default();
+    }
+
+    #[test]
+    fn test_check_compatibility_pass() {
+        let registry = TargetRegistry::new();
+        let target = registry
+            .get_target("esp32")
+            .unwrap_or_else(|_| panic!("esp32 target not found"));
+        let result = target.check_compatibility(1000, 1000);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_compatibility_storage_fail() {
+        let registry = TargetRegistry::new();
+        let target = registry
+            .get_target("esp32")
+            .unwrap_or_else(|_| panic!("esp32 target not found"));
+        let result = target.check_compatibility(100_000_000, 1000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_compatibility_memory_fail() {
+        let registry = TargetRegistry::new();
+        let target = registry
+            .get_target("esp32")
+            .unwrap_or_else(|_| panic!("esp32 target not found"));
+        let result = target.check_compatibility(1000, 100_000_000);
+        assert!(result.is_err());
+    }
+}

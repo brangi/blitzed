@@ -62,3 +62,43 @@ impl Default for ArduinoTarget {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_arduino_constraints() {
+        let target = ArduinoTarget::new();
+        let constraints = target.constraints();
+        assert_eq!(constraints.memory_limit, 2048);
+        assert_eq!(constraints.storage_limit, 32768);
+        assert_eq!(constraints.cpu_frequency, 16);
+        assert_eq!(constraints.architecture, "AVR");
+        assert_eq!(constraints.word_size, 8);
+        assert!(!constraints.has_fpu);
+        assert!(constraints.accelerators.is_empty());
+    }
+
+    #[test]
+    fn test_arduino_name() {
+        let target = ArduinoTarget::new();
+        assert_eq!(target.name(), "Arduino");
+    }
+
+    #[test]
+    fn test_arduino_optimization_strategy() {
+        let target = ArduinoTarget::new();
+        let strategy = target.optimization_strategy();
+        assert!(strategy.aggressive_quantization);
+        assert!(strategy.enable_pruning);
+        assert_eq!(strategy.target_precision, "int4");
+        assert!(strategy.memory_optimization);
+        assert!(!strategy.speed_optimization);
+    }
+
+    #[test]
+    fn test_arduino_default() {
+        let _target = ArduinoTarget::default();
+    }
+}
