@@ -884,3 +884,270 @@ impl Default for HardwareDeploymentValidator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+
+    fn create_small_model() -> Model {
+        let layers = vec![
+            LayerInfo {
+                name: "fc1".to_string(),
+                layer_type: "linear".to_string(),
+                input_shape: vec![1, 16],
+                output_shape: vec![1, 8],
+                parameter_count: 136,
+                flops: 128,
+            },
+            LayerInfo {
+                name: "relu".to_string(),
+                layer_type: "relu".to_string(),
+                input_shape: vec![1, 8],
+                output_shape: vec![1, 8],
+                parameter_count: 0,
+                flops: 8,
+            },
+            LayerInfo {
+                name: "fc2".to_string(),
+                layer_type: "linear".to_string(),
+                input_shape: vec![1, 8],
+                output_shape: vec![1, 4],
+                parameter_count: 36,
+                flops: 32,
+            },
+        ];
+        let total_params: usize = layers.iter().map(|l| l.parameter_count).sum();
+        let total_flops: u64 = layers.iter().map(|l| l.flops).sum();
+        Model {
+            info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 16]],
+                output_shapes: vec![vec![1, 4]],
+                parameter_count: total_params,
+                model_size_bytes: total_params * 4,
+                operations_count: total_flops as usize,
+                layers,
+            },
+            data: ModelData::Raw(vec![]),
+        }
+    }
+
+    fn create_tiny_model() -> Model {
+        Model {
+            info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 4]],
+                output_shapes: vec![vec![1, 2]],
+                parameter_count: 10,
+                model_size_bytes: 40,
+                operations_count: 8,
+                layers: vec![LayerInfo {
+                    name: "tiny".to_string(),
+                    layer_type: "linear".to_string(),
+                    input_shape: vec![1, 4],
+                    output_shape: vec![1, 2],
+                    parameter_count: 10,
+                    flops: 8,
+                }],
+            },
+            data: ModelData::Raw(vec![]),
+        }
+    }
+
+    fn create_large_model() -> Model {
+        let layers: Vec<LayerInfo> = (0..100)
+            .map(|i| LayerInfo {
+                name: format!("layer{i}"),
+                layer_type: "linear".to_string(),
+                input_shape: vec![1, 512],
+                output_shape: vec![1, 512],
+                parameter_count: 512 * 512 + 512,
+                flops: 512 * 512,
+            })
+            .collect();
+        let total_params: usize = layers.iter().map(|l| l.parameter_count).sum();
+        let total_flops: u64 = layers.iter().map(|l| l.flops).sum();
+        Model {
+            info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 512]],
+                output_shapes: vec![vec![1, 512]],
+                parameter_count: total_params,
+                model_size_bytes: total_params * 4,
+                operations_count: total_flops as usize,
+                layers,
+            },
+            data: ModelData::Raw(vec![]),
+        }
+    }
+
+    #[test]
+    fn test_deployment_validation_config_default() {
+        let config = DeploymentValidationConfig::default();
+        assert_eq!(config.max_inference_time_ms, 1000.0);
+        assert_eq!(config.min_memory_efficiency, 0.6);
+        assert!(config.generate_optimized_variants);
+        assert!(config.strict_constraint_validation);
+        assert!(config.output_directory.is_none());
+        assert!(!config.cleanup_artifacts);
+    }
+
+    #[test]
+    fn test_validator_new_and_default() {
+        let v1 = HardwareDeploymentValidator::new();
+        let v2 = HardwareDeploymentValidator::default();
+        assert_eq!(v1.config().max_inference_time_ms, v2.config().max_inference_time_ms);
+    }
+
+    #[test]
+    fn test_validator_with_config() {
+        let custom = DeploymentValidationConfig {
+            max_inference_time_ms: 500.0,
+            min_memory_efficiency: 0.8,
+            generate_optimized_variants: false,
+            strict_constraint_validation: false,
+            output_directory: Some("/tmp/test".into()),
+            cleanup_artifacts: true,
+        };
+        let v = HardwareDeploymentValidator::with_config(custom);
+        assert_eq!(v.config().max_inference_time_ms, 500.0);
+        assert!(v.config().cleanup_artifacts);
+    }
+
+    #[test]
+    fn test_validator_set_config() {
+        let mut v = HardwareDeploymentValidator::new();
+        assert_eq!(v.config().max_inference_time_ms, 1000.0);
+        v.set_config(DeploymentValidationConfig {
+            max_inference_time_ms: 250.0,
+            ..DeploymentValidationConfig::default()
+        });
+        assert_eq!(v.config().max_inference_time_ms, 250.0);
+    }
+
+    #[test]
+    fn test_validate_esp32_small_model() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+
+        assert_eq!(result.target_name, "ESP32");
+        assert!(result.performance_metrics.estimated_inference_time_ms > 0.0);
+        assert!(result.performance_metrics.memory_efficiency >= 0.0);
+        assert!(result.performance_metrics.memory_efficiency <= 1.0);
+        assert!(!result.deployment_artifacts.source_files.is_empty());
+        assert!(result.deployment_artifacts.build_ready);
+    }
+
+    #[test]
+    fn test_validate_arduino_tiny_model() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_tiny_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_arduino_deployment(&model, &optimizer).unwrap();
+
+        assert_eq!(result.target_name, "Arduino Nano 33 BLE");
+        assert!(result.performance_metrics.estimated_inference_time_ms >= 10.0);
+        assert!(result.performance_metrics.power_efficiency >= 0.3);
+    }
+
+    #[test]
+    fn test_validate_stm32_small_model() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_stm32_deployment(&model, &optimizer).unwrap();
+
+        assert_eq!(result.target_name, "STM32F4");
+        assert!(result.performance_metrics.estimated_inference_time_ms >= 5.0);
+        assert!(!result.deployment_artifacts.build_files.is_empty());
+    }
+
+    #[test]
+    fn test_generate_deployment_report_empty() {
+        let validator = HardwareDeploymentValidator::new();
+        let report = validator.generate_deployment_report(&[]);
+        assert!(report.contains("Hardware Deployment Validation Report"));
+    }
+
+    #[test]
+    fn test_generate_deployment_report_with_result() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let report = validator.generate_deployment_report(&[result]);
+
+        assert!(report.contains("ESP32 Deployment"));
+        assert!(report.contains("Model Analysis"));
+        assert!(report.contains("Inference Time"));
+    }
+
+    #[test]
+    fn test_generate_report_multiple_targets() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let esp = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let stm = validator.validate_stm32_deployment(&model, &optimizer).unwrap();
+        let report = validator.generate_deployment_report(&[esp, stm]);
+
+        assert!(report.contains("ESP32"));
+        assert!(report.contains("STM32F4"));
+    }
+
+    #[test]
+    fn test_performance_metrics_bounds() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+
+        let m = &result.performance_metrics;
+        assert!(m.estimated_inference_time_ms > 0.0);
+        assert!((0.0..=1.0).contains(&m.memory_efficiency));
+        assert!((0.0..=1.0).contains(&m.power_efficiency));
+        assert!((0.0..=1.0).contains(&m.latency_accuracy_score));
+    }
+
+    #[test]
+    fn test_arduino_large_model_returns_error_or_warnings() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_large_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_arduino_deployment(&model, &optimizer);
+
+        // Large model either errors at optimization or produces warnings
+        match result {
+            Err(_) => {} // Expected: model too large for hardware
+            Ok(deployment) => {
+                assert!(!deployment.deployment_successful || !deployment.warnings.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn test_deployment_artifacts_structure() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+
+        assert!(!result.deployment_artifacts.source_files.is_empty());
+        assert!(!result.deployment_artifacts.header_files.is_empty());
+        assert!(result.deployment_artifacts.total_size_bytes > 0);
+    }
+
+    #[test]
+    fn test_validation_timestamp_format() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+
+        assert!(result.validation_timestamp.contains("UTC"));
+    }
+}
