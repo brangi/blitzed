@@ -421,11 +421,8 @@ mod tests {
 
         // Test optimization validation
         let result = validator.validate_optimization_consistency(&model, &optimizer, &config);
-        if result.is_err() {
-            println!(
-                "❌ Optimization validation failed: {:?}",
-                result.as_ref().unwrap_err()
-            );
+        if let Err(ref e) = result {
+            println!("❌ Optimization validation failed: {:?}", e);
         }
         assert!(result.is_ok());
 
