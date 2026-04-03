@@ -181,7 +181,8 @@ mod tests {
     fn test_esp32_generate() {
         let gen = Esp32CodeGen::new();
         let model = create_test_model();
-        let dir = std::env::temp_dir().join(format!("blitzed_test_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("blitzed_esp32_gen_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)
             .unwrap_or_else(|_| panic!("Failed to create temp directory: {}", dir.display()));
 
