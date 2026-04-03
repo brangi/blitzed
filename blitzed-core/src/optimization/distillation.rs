@@ -801,4 +801,176 @@ mod tests {
         assert_eq!(distilled.size_reduction(), 75.0); // (1.0 - 1.0/4.0) * 100
         assert!(distilled.is_successful()); // retention > 0.7 and ratio > 1.5
     }
+
+    #[test]
+    fn test_train_student_basic_workflow() {
+        let teacher = create_test_teacher_model();
+        let config = DistillationConfig {
+            compression_ratio: 3.0,
+            training_epochs: 5,
+            student_architecture: StudentArchitecture::ReducedWidth,
+            ..Default::default()
+        };
+
+        let distiller = Distiller::new(config);
+        let student_arch = distiller.generate_student_architecture(&teacher).unwrap();
+        let result = distiller
+            .train_student(&teacher, &student_arch, None)
+            .unwrap();
+
+        // Verify distilled model has reasonable values
+        assert!(result.accuracy_retention > 0.0);
+        assert!(result.compression_ratio > 1.0);
+        assert_eq!(result.training_epochs_completed, 5);
+
+        // Verify final loss is less than initial simulated loss (2.5)
+        assert!(result.final_loss < 2.5);
+    }
+
+    #[test]
+    fn test_simulate_epoch_training_loss_decreases() {
+        let teacher = create_test_teacher_model();
+        let student_arch = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 3, 224, 224]],
+            output_shapes: vec![vec![1, 1000]],
+            parameter_count: 50_000,
+            model_size_bytes: 200_000,
+            operations_count: 1_000_000,
+            layers: vec![],
+        };
+
+        let distiller = Distiller::new(DistillationConfig::default());
+
+        let loss_epoch_0 = distiller
+            .simulate_epoch_training(&teacher, &student_arch, None, 0)
+            .unwrap();
+        let loss_epoch_50 = distiller
+            .simulate_epoch_training(&teacher, &student_arch, None, 50)
+            .unwrap();
+
+        // Loss should decrease over epochs
+        assert!(loss_epoch_50 < loss_epoch_0);
+    }
+
+    #[test]
+    fn test_cross_entropy_loss_computation() {
+        let distiller = Distiller::new(DistillationConfig::default());
+        let logits = vec![2.0, 1.0, 0.5];
+        let labels = vec![0]; // Correct class is 0
+
+        let loss = distiller.cross_entropy_loss(&logits, &labels);
+
+        // Loss should be positive and finite
+        assert!(loss > 0.0);
+        assert!(loss.is_finite());
+    }
+
+    #[test]
+    fn test_custom_student_architecture_fallback() {
+        let teacher = create_test_teacher_model();
+        let config = DistillationConfig {
+            compression_ratio: 2.5,
+            student_architecture: StudentArchitecture::Custom("my_custom_arch".to_string()),
+            ..Default::default()
+        };
+
+        let distiller = Distiller::new(config);
+        let student_arch = distiller.generate_student_architecture(&teacher).unwrap();
+
+        // Should fall back to reduced width behavior
+        assert!(student_arch.parameter_count < teacher.info().parameter_count);
+        assert_eq!(student_arch.layers.len(), teacher.info().layers.len());
+    }
+
+    #[test]
+    fn test_is_successful_edge_cases() {
+        // Edge case: retention just below threshold
+        let distilled_low_retention = DistilledModel {
+            student_info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 3, 224, 224]],
+                output_shapes: vec![vec![1, 1000]],
+                parameter_count: 50_000,
+                model_size_bytes: 200_000,
+                operations_count: 1_000_000,
+                layers: vec![],
+            },
+            teacher_size: 200_000,
+            student_size: 50_000,
+            accuracy_retention: 0.59,
+            compression_ratio: 4.0,
+            training_epochs_completed: 100,
+            final_loss: 0.35,
+            temperature_used: 3.0,
+            alpha_used: 0.7,
+        };
+        assert!(!distilled_low_retention.is_successful());
+
+        // Edge case: compression ratio just below threshold
+        let distilled_low_ratio = DistilledModel {
+            student_info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 3, 224, 224]],
+                output_shapes: vec![vec![1, 1000]],
+                parameter_count: 50_000,
+                model_size_bytes: 200_000,
+                operations_count: 1_000_000,
+                layers: vec![],
+            },
+            teacher_size: 100_000,
+            student_size: 72_000,
+            accuracy_retention: 0.95,
+            compression_ratio: 1.4,
+            training_epochs_completed: 100,
+            final_loss: 0.25,
+            temperature_used: 3.0,
+            alpha_used: 0.7,
+        };
+        assert!(!distilled_low_ratio.is_successful());
+
+        // Edge case: both thresholds met
+        let distilled_success = DistilledModel {
+            student_info: ModelInfo {
+                format: ModelFormat::PyTorch,
+                input_shapes: vec![vec![1, 3, 224, 224]],
+                output_shapes: vec![vec![1, 1000]],
+                parameter_count: 50_000,
+                model_size_bytes: 200_000,
+                operations_count: 1_000_000,
+                layers: vec![],
+            },
+            teacher_size: 150_000,
+            student_size: 50_000,
+            accuracy_retention: 0.6,
+            compression_ratio: 1.5,
+            training_epochs_completed: 100,
+            final_loss: 0.4,
+            temperature_used: 3.0,
+            alpha_used: 0.7,
+        };
+        assert!(distilled_success.is_successful());
+    }
+
+    #[test]
+    fn test_estimate_accuracy_retention_clamping() {
+        let config = DistillationConfig {
+            compression_ratio: 10.0, // Very high compression
+            student_architecture: StudentArchitecture::ReducedWidth,
+            ..Default::default()
+        };
+
+        let distiller = Distiller::new(config);
+
+        let mut metrics = TrainingMetrics::new();
+        for i in 0..10 {
+            metrics.add_epoch_loss(1.0 - (i as f32 * 0.05));
+        }
+
+        let retention = distiller.estimate_accuracy_retention(1_000_000, 50_000, &metrics);
+
+        // Should be clamped between 0.65 and 0.98
+        assert!(retention >= 0.65);
+        assert!(retention <= 0.98);
+    }
 }

@@ -1691,4 +1691,628 @@ mod tests {
 
         assert!((quantized.compression_ratio() - 4.0).abs() < 0.001); // 4MB / 1MB = 4.0x
     }
+
+    // ========== Calibration Dataset Tests ==========
+
+    #[test]
+    fn test_create_calibration_dataset_valid() {
+        let inputs = vec![
+            vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]], // 2 samples
+            vec![vec![7.0, 8.0], vec![9.0, 10.0]],          // 2 samples
+        ];
+        let input_shapes = vec![vec![2, 3], vec![2, 2]];
+        let data_source = "test_dataset".to_string();
+
+        let dataset =
+            Quantizer::create_calibration_dataset(inputs, input_shapes, data_source).unwrap();
+
+        assert_eq!(dataset.metadata.sample_count, 2);
+        assert_eq!(dataset.inputs.len(), 2);
+        assert!(dataset.outputs.is_none());
+        assert_eq!(dataset.metadata.data_source, "test_dataset");
+        assert!(dataset.metadata.creation_time.is_some());
+    }
+
+    #[test]
+    fn test_create_calibration_dataset_empty_inputs() {
+        let inputs: Vec<Vec<Vec<f32>>> = vec![];
+        let input_shapes = vec![];
+        let data_source = "empty".to_string();
+
+        let result = Quantizer::create_calibration_dataset(inputs, input_shapes, data_source);
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::OptimizationFailed { reason }) => {
+                assert!(reason.contains("empty inputs"));
+            }
+            _ => panic!("Expected OptimizationFailed error"),
+        }
+    }
+
+    #[test]
+    fn test_create_calibration_dataset_mismatched_sample_counts() {
+        let inputs = vec![
+            vec![vec![1.0, 2.0], vec![3.0, 4.0]], // 2 samples
+            vec![vec![5.0, 6.0]],                 // 1 sample - MISMATCH
+        ];
+        let input_shapes = vec![vec![2, 2], vec![1, 2]];
+        let data_source = "mismatched".to_string();
+
+        let result = Quantizer::create_calibration_dataset(inputs, input_shapes, data_source);
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::OptimizationFailed { reason }) => {
+                assert!(reason.contains("expected 2"));
+            }
+            _ => panic!("Expected OptimizationFailed error"),
+        }
+    }
+
+    // ========== Calibration Analysis Tests ==========
+
+    #[test]
+    fn test_analyze_calibration_data_percentile() {
+        let config = QuantizationConfig {
+            calibration_method: CalibrationMethod::Percentile,
+            percentile_threshold: 0.01,
+            ..Default::default()
+        };
+        let inputs = vec![vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            vec![6.0, 7.0, 8.0, 9.0, 10.0],
+        ]];
+        let dataset =
+            Quantizer::create_calibration_dataset(inputs, vec![vec![2, 5]], "test".to_string())
+                .unwrap();
+
+        let quantizer = Quantizer::with_calibration(config, dataset);
+        let result = quantizer.analyze_calibration_data().unwrap();
+
+        assert_eq!(result.stats.sample_count, 2);
+        assert!(!result.stats.min_values.is_empty());
+        assert!(!result.stats.max_values.is_empty());
+        assert!(!result.stats.percentile_values.is_empty());
+        assert!(!result.recommended_params.is_empty());
+        assert!(result.quality_score > 0.0);
+    }
+
+    #[test]
+    fn test_analyze_calibration_data_entropy() {
+        let config = QuantizationConfig {
+            calibration_method: CalibrationMethod::Entropy,
+            ..Default::default()
+        };
+        let inputs = vec![vec![
+            vec![-2.0, -1.0, 0.0, 1.0, 2.0],
+            vec![-1.5, -0.5, 0.5, 1.5, 2.5],
+        ]];
+        let dataset = Quantizer::create_calibration_dataset(
+            inputs,
+            vec![vec![2, 5]],
+            "entropy_test".to_string(),
+        )
+        .unwrap();
+
+        let quantizer = Quantizer::with_calibration(config, dataset);
+        let result = quantizer.analyze_calibration_data().unwrap();
+
+        assert!(!result.recommended_params.is_empty());
+        assert!(result.recommended_params[0].scale > 0.0);
+    }
+
+    #[test]
+    fn test_analyze_calibration_data_mse() {
+        let config = QuantizationConfig {
+            calibration_method: CalibrationMethod::MSE,
+            ..Default::default()
+        };
+        let inputs = vec![vec![
+            vec![-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0],
+            vec![-2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5],
+        ]];
+        let dataset =
+            Quantizer::create_calibration_dataset(inputs, vec![vec![2, 7]], "mse_test".to_string())
+                .unwrap();
+
+        let quantizer = Quantizer::with_calibration(config, dataset);
+        let result = quantizer.analyze_calibration_data().unwrap();
+
+        assert!(!result.recommended_params.is_empty());
+        assert!(result.quality_score > 0.0);
+    }
+
+    #[test]
+    fn test_analyze_calibration_data_no_data() {
+        let config = QuantizationConfig::default();
+        let quantizer = Quantizer::new(config);
+
+        let result = quantizer.analyze_calibration_data();
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::OptimizationFailed { reason }) => {
+                assert!(reason.contains("No calibration data"));
+            }
+            _ => panic!("Expected OptimizationFailed error"),
+        }
+    }
+
+    // ========== Histogram Tests ==========
+
+    #[test]
+    fn test_create_histogram_empty_values() {
+        let quantizer = Quantizer::new(QuantizationConfig::default());
+        let histogram = quantizer.create_histogram(&[], 256);
+        assert_eq!(histogram.len(), 256);
+        assert!(histogram.iter().all(|&count| count == 0));
+    }
+
+    #[test]
+    fn test_create_histogram_constant_values() {
+        let quantizer = Quantizer::new(QuantizationConfig::default());
+        let values = vec![5.0; 100];
+        let histogram = quantizer.create_histogram(&values, 256);
+
+        assert_eq!(histogram.len(), 256);
+        // All values should be in the first bin
+        assert_eq!(histogram[0], 100);
+        assert_eq!(histogram[1..].iter().sum::<usize>(), 0);
+    }
+
+    #[test]
+    fn test_create_histogram_distribution() {
+        let quantizer = Quantizer::new(QuantizationConfig::default());
+        let values = vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let histogram = quantizer.create_histogram(&values, 10);
+
+        assert_eq!(histogram.len(), 10);
+        // Should have roughly uniform distribution across bins
+        assert_eq!(histogram.iter().sum::<usize>(), values.len());
+    }
+
+    // ========== Post-Training Quantization Tests ==========
+
+    #[test]
+    fn test_quantize_int4() {
+        let config = QuantizationConfig {
+            quantization_type: QuantizationType::Int4,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let model_info = create_test_model_info();
+        let model = Model {
+            info: model_info,
+            data: crate::model::ModelData::Raw(vec![0u8; 1000]),
+        };
+
+        let result = quantizer.quantize_int4(&model, None).unwrap();
+
+        assert!(!result.layers.is_empty());
+        assert_eq!(
+            result.quantization_params.quantization_type,
+            QuantizationType::Int4
+        );
+        // INT4 should achieve ~87.5% compression
+        assert!(result.compression_ratio() > 4.0);
+        // INT4 has higher accuracy loss than INT8
+        assert!(result.accuracy_loss > 3.0);
+    }
+
+    #[test]
+    fn test_quantize_binary() {
+        let config = QuantizationConfig {
+            quantization_type: QuantizationType::Binary,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let model_info = create_test_model_info();
+        let model = Model {
+            info: model_info,
+            data: crate::model::ModelData::Raw(vec![0u8; 1000]),
+        };
+
+        let result = quantizer.quantize_binary(&model, None).unwrap();
+
+        assert!(!result.layers.is_empty());
+        assert_eq!(
+            result.quantization_params.quantization_type,
+            QuantizationType::Binary
+        );
+        // Binary should have highest accuracy loss
+        assert!(result.accuracy_loss > 10.0);
+    }
+
+    #[test]
+    fn test_quantize_mixed() {
+        let config = QuantizationConfig {
+            quantization_type: QuantizationType::Mixed,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let model_info = create_test_model_info();
+        let model = Model {
+            info: model_info,
+            data: crate::model::ModelData::Raw(vec![0u8; 1000]),
+        };
+
+        let result = quantizer.quantize_mixed(&model, None).unwrap();
+
+        assert!(!result.layers.is_empty());
+        assert_eq!(
+            result.quantization_params.quantization_type,
+            QuantizationType::Mixed
+        );
+        // Mixed should balance compression and accuracy
+        assert!(result.accuracy_loss > 2.0 && result.accuracy_loss < 10.0);
+    }
+
+    #[test]
+    fn test_post_training_quantization_with_calibration() {
+        let config = QuantizationConfig::default();
+        let inputs = vec![vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]]];
+        let dataset = Quantizer::create_calibration_dataset(
+            inputs,
+            vec![vec![2, 3]],
+            "calibration".to_string(),
+        )
+        .unwrap();
+
+        let quantizer = Quantizer::with_calibration(config, dataset);
+
+        let model_info = create_test_model_info();
+        let model = Model {
+            info: model_info,
+            data: crate::model::ModelData::Raw(vec![0u8; 1000]),
+        };
+
+        let result = quantizer.quantize_post_training(&model).unwrap();
+        assert!(!result.layers.is_empty());
+    }
+
+    // ========== Accuracy Loss Estimation Tests ==========
+
+    #[test]
+    fn test_estimate_accuracy_loss_int4() {
+        let config = QuantizationConfig {
+            quantization_type: QuantizationType::Int4,
+            symmetric: true,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let layers = vec![QuantizedLayer {
+            name: "test_layer".to_string(),
+            param: QuantizationParam {
+                scale: 0.01,
+                zero_point: 0,
+            },
+            quantized_weights: vec![1, 2, 3],
+            weight_count: 1000,
+            original_size: 4000,
+            quantized_size: 500,
+        }];
+
+        let loss = quantizer.estimate_accuracy_loss_int4(&layers);
+        assert!(loss >= 4.0); // Should have higher base loss
+    }
+
+    #[test]
+    fn test_estimate_accuracy_loss_binary() {
+        let config = QuantizationConfig::default();
+        let quantizer = Quantizer::new(config);
+
+        let layers = vec![QuantizedLayer {
+            name: "binary_layer".to_string(),
+            param: QuantizationParam {
+                scale: 1.0,
+                zero_point: 0,
+            },
+            quantized_weights: vec![1, -1, 1],
+            weight_count: 1000,
+            original_size: 4000,
+            quantized_size: 125, // 1-bit = 1/8 byte per weight
+        }];
+
+        let loss = quantizer.estimate_accuracy_loss_binary(&layers);
+        assert!(loss >= 10.0); // Binary has highest loss
+    }
+
+    #[test]
+    fn test_estimate_accuracy_loss_mixed() {
+        let config = QuantizationConfig::default();
+        let quantizer = Quantizer::new(config);
+
+        let layers = vec![
+            // FP16 layer (low compression)
+            QuantizedLayer {
+                name: "fp16_layer".to_string(),
+                param: QuantizationParam {
+                    scale: 1.0,
+                    zero_point: 0,
+                },
+                quantized_weights: vec![1, 2, 3],
+                weight_count: 500,
+                original_size: 2000,
+                quantized_size: 1000, // 50% size
+            },
+            // INT4 layer (high compression)
+            QuantizedLayer {
+                name: "int4_layer".to_string(),
+                param: QuantizationParam {
+                    scale: 0.05,
+                    zero_point: 0,
+                },
+                quantized_weights: vec![1, 2, 3],
+                weight_count: 500,
+                original_size: 2000,
+                quantized_size: 250, // 87.5% reduction
+            },
+        ];
+
+        let loss = quantizer.estimate_accuracy_loss_mixed(&layers);
+        // Mixed should be moderate
+        assert!(loss > 2.0 && loss < 15.0);
+    }
+
+    // ========== Accuracy Threshold Tests ==========
+
+    #[test]
+    fn test_check_accuracy_threshold_pass() {
+        let quantized = QuantizedModel {
+            original_model_info: create_test_model_info(),
+            quantized_size: 1_000_000,
+            quantization_params: QuantizationParams {
+                scale: vec![0.1],
+                zero_point: vec![0],
+                quantization_type: QuantizationType::Int8,
+            },
+            accuracy_loss: 3.0,
+            layers: vec![],
+        };
+
+        let result = quantized.check_accuracy_threshold(5.0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_accuracy_threshold_fail() {
+        let quantized = QuantizedModel {
+            original_model_info: create_test_model_info(),
+            quantized_size: 1_000_000,
+            quantization_params: QuantizationParams {
+                scale: vec![0.1],
+                zero_point: vec![0],
+                quantization_type: QuantizationType::Int8,
+            },
+            accuracy_loss: 8.0,
+            layers: vec![],
+        };
+
+        let result = quantized.check_accuracy_threshold(5.0);
+        assert!(result.is_err());
+        match result {
+            Err(BlitzedError::AccuracyThreshold { threshold, actual }) => {
+                assert_eq!(threshold, 5.0);
+                assert_eq!(actual, 8.0);
+            }
+            _ => panic!("Expected AccuracyThreshold error"),
+        }
+    }
+
+    // ========== Layer Breakdown Tests ==========
+
+    #[test]
+    fn test_get_layer_breakdown_multiple_layers() {
+        let layers = vec![
+            QuantizedLayer {
+                name: "conv1".to_string(),
+                param: QuantizationParam {
+                    scale: 0.02,
+                    zero_point: 0,
+                },
+                quantized_weights: vec![1, 2, 3],
+                weight_count: 9408,
+                original_size: 37632,
+                quantized_size: 9408,
+            },
+            QuantizedLayer {
+                name: "conv2".to_string(),
+                param: QuantizationParam {
+                    scale: 0.03,
+                    zero_point: 5,
+                },
+                quantized_weights: vec![4, 5, 6],
+                weight_count: 73728,
+                original_size: 294912,
+                quantized_size: 73728,
+            },
+            QuantizedLayer {
+                name: "fc1".to_string(),
+                param: QuantizationParam {
+                    scale: 0.01,
+                    zero_point: -2,
+                },
+                quantized_weights: vec![7, 8, 9],
+                weight_count: 524288,
+                original_size: 2097152,
+                quantized_size: 524288,
+            },
+        ];
+
+        let quantized = QuantizedModel {
+            original_model_info: create_test_model_info(),
+            quantized_size: layers.iter().map(|l| l.quantized_size).sum(),
+            quantization_params: QuantizationParams {
+                scale: layers.iter().map(|l| l.param.scale).collect(),
+                zero_point: layers.iter().map(|l| l.param.zero_point).collect(),
+                quantization_type: QuantizationType::Int8,
+            },
+            accuracy_loss: 2.5,
+            layers: layers.clone(),
+        };
+
+        let breakdown = quantized.get_layer_breakdown();
+        assert_eq!(breakdown.len(), 3);
+
+        assert_eq!(breakdown[0].name, "conv1");
+        assert_eq!(breakdown[0].parameter_count, 9408);
+        assert_eq!(breakdown[0].scale, 0.02);
+        assert_eq!(breakdown[0].zero_point, 0);
+
+        assert_eq!(breakdown[1].name, "conv2");
+        assert_eq!(breakdown[1].parameter_count, 73728);
+        assert_eq!(breakdown[1].scale, 0.03);
+        assert_eq!(breakdown[1].zero_point, 5);
+
+        assert_eq!(breakdown[2].name, "fc1");
+        assert_eq!(breakdown[2].parameter_count, 524288);
+        assert_eq!(breakdown[2].scale, 0.01);
+        assert_eq!(breakdown[2].zero_point, -2);
+
+        // All should have 75% compression (INT8)
+        for info in &breakdown {
+            assert!((info.compression_ratio - 0.75).abs() < 0.01);
+        }
+    }
+
+    // ========== Additional Coverage Tests ==========
+
+    #[test]
+    fn test_estimate_impact_all_types() {
+        let model_info = create_test_model_info();
+        let model = Model {
+            info: model_info,
+            data: crate::model::ModelData::Raw(vec![0u8; 1000]),
+        };
+
+        // Test INT4
+        let config_int4 = QuantizationConfig {
+            quantization_type: QuantizationType::Int4,
+            ..Default::default()
+        };
+        let quantizer_int4 = Quantizer::new(config_int4.clone());
+        let impact_int4 = quantizer_int4
+            .estimate_impact(&model, &config_int4)
+            .unwrap();
+        assert_eq!(impact_int4.size_reduction, 0.875);
+        assert_eq!(impact_int4.accuracy_loss, 5.0);
+
+        // Test Binary
+        let config_binary = QuantizationConfig {
+            quantization_type: QuantizationType::Binary,
+            ..Default::default()
+        };
+        let quantizer_binary = Quantizer::new(config_binary.clone());
+        let impact_binary = quantizer_binary
+            .estimate_impact(&model, &config_binary)
+            .unwrap();
+        assert_eq!(impact_binary.size_reduction, 0.96875);
+        assert_eq!(impact_binary.accuracy_loss, 15.0);
+
+        // Test Mixed
+        let config_mixed = QuantizationConfig {
+            quantization_type: QuantizationType::Mixed,
+            ..Default::default()
+        };
+        let quantizer_mixed = Quantizer::new(config_mixed.clone());
+        let impact_mixed = quantizer_mixed
+            .estimate_impact(&model, &config_mixed)
+            .unwrap();
+        assert_eq!(impact_mixed.size_reduction, 0.6);
+        assert_eq!(impact_mixed.accuracy_loss, 3.0);
+    }
+
+    #[test]
+    fn test_quantization_params_calculation_empty() {
+        let config = QuantizationConfig::default();
+        let quantizer = Quantizer::new(config);
+
+        let result = quantizer.calculate_quantization_params(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_quantization_params_constant_tensor() {
+        let config = QuantizationConfig::default();
+        let quantizer = Quantizer::new(config);
+
+        let values = vec![5.0; 100];
+        let param = quantizer.calculate_quantization_params(&values).unwrap();
+
+        // Constant tensor should have scale 1.0 and zero_point 0
+        assert_eq!(param.scale, 1.0);
+        assert_eq!(param.zero_point, 0);
+    }
+
+    #[test]
+    fn test_int8_params_symmetric() {
+        let config = QuantizationConfig {
+            symmetric: true,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let (scale, zero_point) = quantizer.calculate_int8_params(-5.0, 10.0);
+        assert!(scale > 0.0);
+        assert_eq!(zero_point, 0); // Symmetric always has zero_point 0
+    }
+
+    #[test]
+    fn test_int8_params_asymmetric() {
+        let config = QuantizationConfig {
+            symmetric: false,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let (scale, zero_point) = quantizer.calculate_int8_params(0.0, 25.5);
+        assert!(scale > 0.0);
+        assert!((0..=255).contains(&zero_point));
+    }
+
+    #[test]
+    fn test_int4_params_symmetric() {
+        let config = QuantizationConfig {
+            symmetric: true,
+            quantization_type: QuantizationType::Int4,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let (scale, zero_point) = quantizer.calculate_int4_params(-3.5, 7.0);
+        assert!(scale > 0.0);
+        assert_eq!(zero_point, 0);
+    }
+
+    #[test]
+    fn test_int4_params_asymmetric() {
+        let config = QuantizationConfig {
+            symmetric: false,
+            quantization_type: QuantizationType::Int4,
+            ..Default::default()
+        };
+        let quantizer = Quantizer::new(config);
+
+        let (scale, zero_point) = quantizer.calculate_int4_params(0.0, 15.0);
+        assert!(scale > 0.0);
+        assert!((0..=15).contains(&zero_point));
+    }
+
+    #[test]
+    fn test_set_calibration_data() {
+        let config = QuantizationConfig::default();
+        let mut quantizer = Quantizer::new(config);
+
+        assert!(quantizer.calibration_data.is_none());
+
+        let inputs = vec![vec![vec![1.0, 2.0, 3.0]]];
+        let dataset =
+            Quantizer::create_calibration_dataset(inputs, vec![vec![1, 3]], "test".to_string())
+                .unwrap();
+
+        quantizer.set_calibration_data(dataset);
+        assert!(quantizer.calibration_data.is_some());
+    }
 }

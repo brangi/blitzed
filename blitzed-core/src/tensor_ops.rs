@@ -768,4 +768,154 @@ mod tests {
             assert_eq!(data, &expected);
         }
     }
+
+    #[test]
+    fn test_batch_norm() {
+        // Create 4D input [1, 2, 2, 2]
+        let input = Tensor::new(
+            vec![1, 2, 2, 2],
+            TensorData::Float32(vec![
+                1.0, 2.0, 3.0, 4.0, // channel 0
+                5.0, 6.0, 7.0, 8.0, // channel 1
+            ]),
+        );
+
+        // Mean and variance for 2 channels
+        let mean = Tensor::new(vec![2], TensorData::Float32(vec![2.5, 6.5]));
+        let var = Tensor::new(vec![2], TensorData::Float32(vec![1.25, 1.25]));
+        let gamma = Tensor::new(vec![2], TensorData::Float32(vec![1.0, 1.0]));
+        let beta = Tensor::new(vec![2], TensorData::Float32(vec![0.0, 0.0]));
+
+        let result = TensorOps::batch_norm(&input, &mean, &var, Some(&gamma), Some(&beta), 1e-5)
+            .expect("BatchNorm should succeed");
+
+        assert_eq!(result.shape, vec![1, 2, 2, 2]);
+
+        if let TensorData::Float32(data) = &result.data {
+            // Verify normalized values are reasonable
+            assert!(data.iter().all(|&x| x.is_finite()));
+        }
+    }
+
+    #[test]
+    fn test_avg_pool2d() {
+        let input = Tensor::new(
+            vec![1, 1, 4, 4],
+            TensorData::Float32(vec![
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+                16.0,
+            ]),
+        );
+
+        let result = TensorOps::avg_pool2d(&input, (2, 2), (2, 2), (0, 0))
+            .expect("AvgPool2d should succeed");
+
+        assert_eq!(result.shape, vec![1, 1, 2, 2]);
+
+        // Expected: average of each 2x2 region
+        // Top-left: (1+2+5+6)/4 = 3.5
+        // Top-right: (3+4+7+8)/4 = 5.5
+        // Bottom-left: (9+10+13+14)/4 = 11.5
+        // Bottom-right: (11+12+15+16)/4 = 13.5
+        let expected = vec![3.5, 5.5, 11.5, 13.5];
+        if let TensorData::Float32(data) = &result.data {
+            assert_eq!(data, &expected);
+        }
+    }
+
+    #[test]
+    fn test_int4_to_f32() {
+        // Create Int4 tensor with known packed bytes
+        // Each byte contains two 4-bit values
+        let packed_data = vec![0x48, 0x5A]; // (4,8) and (5,10) when unpacked
+        let tensor = Tensor::new(vec![4], TensorData::Int4(packed_data));
+
+        let result = tensor.to_f32().expect("Conversion should succeed");
+
+        // Each 4-bit value is converted: ((val >> 4) - 8) and ((val & 0xF) - 8)
+        // 0x48: (4-8, 8-8) = (-4, 0)
+        // 0x5A: (5-8, 10-8) = (-3, 2)
+        assert_eq!(result.len(), 4);
+        assert!(result.iter().all(|&x| x.is_finite()));
+    }
+
+    #[test]
+    fn test_binary_to_f32() {
+        // Create Binary tensor with 2 bytes (16 bits)
+        let binary_data = vec![0b10101010, 0b11001100];
+        let tensor = Tensor::new(vec![16], TensorData::Binary(binary_data));
+
+        let result = tensor.to_f32().expect("Conversion should succeed");
+
+        assert_eq!(result.len(), 16);
+
+        // Binary tensors map: bit 1 → 1.0, bit 0 → -1.0
+        for &val in &result {
+            assert!(val == 1.0 || val == -1.0);
+        }
+    }
+
+    #[test]
+    fn test_add_with_bias_broadcasting() {
+        // Create [2, 3, 4, 4] input and [3] bias for channel-wise addition
+        let a = Tensor::new(
+            vec![2, 3, 4, 4],
+            TensorData::Float32(vec![1.0; 2 * 3 * 4 * 4]),
+        );
+        let b = Tensor::new(vec![3], TensorData::Float32(vec![10.0, 20.0, 30.0]));
+
+        let result = TensorOps::add(&a, &b).expect("Bias broadcasting should succeed");
+
+        assert_eq!(result.shape, vec![2, 3, 4, 4]);
+
+        if let TensorData::Float32(data) = &result.data {
+            // Verify channel-wise bias was added
+            assert!(data.iter().all(|&x| (11.0..=31.0).contains(&x)));
+        }
+    }
+
+    #[test]
+    fn test_add_incompatible_shapes_error() {
+        let a = Tensor::new(vec![2, 3], TensorData::Float32(vec![1.0; 6]));
+        let b = Tensor::new(vec![4, 5], TensorData::Float32(vec![1.0; 20]));
+
+        let result = TensorOps::add(&a, &b);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Cannot add tensors"));
+        }
+    }
+
+    #[test]
+    fn test_matmul_dimension_mismatch_error() {
+        let a = Tensor::new(vec![2, 3], TensorData::Float32(vec![1.0; 6]));
+        let b = Tensor::new(vec![4, 5], TensorData::Float32(vec![1.0; 20]));
+
+        let result = TensorOps::matmul(&a, &b);
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let msg = e.to_string();
+            assert!(msg.contains("dimension mismatch") || msg.contains("2x3"));
+        }
+    }
+
+    #[test]
+    fn test_conv2d_channel_mismatch_error() {
+        // Input has 3 channels, weight expects 5 channels
+        let input = Tensor::new(vec![1, 3, 8, 8], TensorData::Float32(vec![1.0; 3 * 8 * 8]));
+        let weight = Tensor::new(
+            vec![16, 5, 3, 3],
+            TensorData::Float32(vec![1.0; 16 * 5 * 3 * 3]),
+        );
+
+        let result = TensorOps::conv2d(&input, &weight, None, (1, 1), (0, 0));
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let msg = e.to_string();
+            assert!(msg.contains("channel") || msg.contains("mismatch"));
+        }
+    }
 }

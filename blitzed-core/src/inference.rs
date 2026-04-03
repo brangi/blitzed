@@ -768,4 +768,753 @@ mod tests {
         assert_eq!(spec.shape, vec![1, 3, 224, 224]);
         assert_eq!(spec.dtype, DataType::Float32);
     }
+
+    #[test]
+    fn test_execute_node_relu() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        // Create input with negative values
+        let input_data = vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0];
+        let input_tensor = Tensor::new(vec![1, 6], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        // Create ReLU node
+        let relu_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "relu_test".to_string(),
+                layer_type: "relu".to_string(),
+                input_shape: vec![1, 6],
+                output_shape: vec![1, 6],
+                parameter_count: 0,
+                flops: 6,
+            },
+            node_type: NodeType::ReLU,
+            inputs: vec!["input_0".to_string()],
+            output: "relu_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&relu_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        if let TensorData::Float32(data) = &output.data {
+            assert_eq!(data[0], 0.0); // -1.0 -> 0.0
+            assert_eq!(data[1], 2.0); // 2.0 -> 2.0
+            assert_eq!(data[2], 0.0); // -3.0 -> 0.0
+            assert_eq!(data[3], 4.0); // 4.0 -> 4.0
+        } else {
+            panic!("Expected Float32 data");
+        }
+    }
+
+    #[test]
+    fn test_execute_node_sigmoid() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        let input_data = vec![0.0, 1.0, -1.0, 5.0, -5.0];
+        let input_tensor = Tensor::new(vec![1, 5], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let sigmoid_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "sigmoid_test".to_string(),
+                layer_type: "sigmoid".to_string(),
+                input_shape: vec![1, 5],
+                output_shape: vec![1, 5],
+                parameter_count: 0,
+                flops: 5,
+            },
+            node_type: NodeType::Sigmoid,
+            inputs: vec!["input_0".to_string()],
+            output: "sigmoid_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&sigmoid_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        if let TensorData::Float32(data) = &output.data {
+            // All values should be in (0, 1)
+            for &val in data.iter() {
+                assert!(val > 0.0 && val < 1.0);
+            }
+        } else {
+            panic!("Expected Float32 data");
+        }
+    }
+
+    #[test]
+    fn test_execute_node_tanh() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        let input_data = vec![0.0, 1.0, -1.0, 3.0, -3.0];
+        let input_tensor = Tensor::new(vec![1, 5], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let tanh_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "tanh_test".to_string(),
+                layer_type: "tanh".to_string(),
+                input_shape: vec![1, 5],
+                output_shape: vec![1, 5],
+                parameter_count: 0,
+                flops: 5,
+            },
+            node_type: NodeType::Tanh,
+            inputs: vec!["input_0".to_string()],
+            output: "tanh_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&tanh_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        if let TensorData::Float32(data) = &output.data {
+            // All values should be in (-1, 1)
+            for &val in data.iter() {
+                assert!(val > -1.0 && val < 1.0);
+            }
+        } else {
+            panic!("Expected Float32 data");
+        }
+    }
+
+    #[test]
+    fn test_execute_node_flatten() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        // Create [1, 3, 4, 4] tensor
+        let input_data = vec![0.5f32; 48]; // 3*4*4 = 48
+        let input_tensor = Tensor::new(vec![1, 3, 4, 4], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let flatten_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "flatten_test".to_string(),
+                layer_type: "flatten".to_string(),
+                input_shape: vec![1, 3, 4, 4],
+                output_shape: vec![1, 48],
+                parameter_count: 0,
+                flops: 0,
+            },
+            node_type: NodeType::Flatten,
+            inputs: vec!["input_0".to_string()],
+            output: "flatten_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&flatten_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, 48]);
+    }
+
+    #[test]
+    fn test_execute_node_reshape() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        // Create [1, 48] tensor
+        let input_data = vec![0.5f32; 48];
+        let input_tensor = Tensor::new(vec![1, 48], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let reshape_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "reshape_test".to_string(),
+                layer_type: "reshape".to_string(),
+                input_shape: vec![1, 48],
+                output_shape: vec![1, 6, 8],
+                parameter_count: 0,
+                flops: 0,
+            },
+            node_type: NodeType::Reshape {
+                target_shape: vec![1, 6, 8],
+            },
+            inputs: vec!["input_0".to_string()],
+            output: "reshape_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&reshape_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, 6, 8]);
+    }
+
+    #[test]
+    fn test_execute_node_add() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        let input_data = vec![1.0, 2.0, 3.0, 4.0];
+        let input_tensor = Tensor::new(vec![1, 4], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let add_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "add_test".to_string(),
+                layer_type: "add".to_string(),
+                input_shape: vec![1, 4],
+                output_shape: vec![1, 4],
+                parameter_count: 0,
+                flops: 4,
+            },
+            node_type: NodeType::Add,
+            inputs: vec!["input_0".to_string()],
+            output: "add_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&add_node);
+        assert!(result.is_ok());
+
+        // Currently Add just returns input as-is (needs second input)
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, 4]);
+    }
+
+    #[test]
+    fn test_execute_node_batchnorm() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        let num_features = 4;
+        // BatchNorm expects 4D input: [batch, channels, height, width]
+        let input_data = vec![1.0f32; num_features * 2 * 2]; // [1, 4, 2, 2]
+        let input_tensor =
+            Tensor::new(vec![1, num_features, 2, 2], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let mut parameters = HashMap::new();
+        parameters.insert(
+            "weight".to_string(),
+            Tensor::new(
+                vec![num_features],
+                TensorData::Float32(vec![1.0; num_features]),
+            ),
+        );
+        parameters.insert(
+            "bias".to_string(),
+            Tensor::new(
+                vec![num_features],
+                TensorData::Float32(vec![0.0; num_features]),
+            ),
+        );
+        parameters.insert(
+            "running_mean".to_string(),
+            Tensor::new(
+                vec![num_features],
+                TensorData::Float32(vec![0.0; num_features]),
+            ),
+        );
+        parameters.insert(
+            "running_var".to_string(),
+            Tensor::new(
+                vec![num_features],
+                TensorData::Float32(vec![1.0; num_features]),
+            ),
+        );
+
+        let batchnorm_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "batchnorm_test".to_string(),
+                layer_type: "batchnorm".to_string(),
+                input_shape: vec![1, num_features as i64, 2, 2],
+                output_shape: vec![1, num_features as i64, 2, 2],
+                parameter_count: num_features * 4,
+                flops: num_features as u64,
+            },
+            node_type: NodeType::BatchNorm,
+            inputs: vec!["input_0".to_string()],
+            output: "batchnorm_out".to_string(),
+            parameters,
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&batchnorm_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, num_features, 2, 2]);
+    }
+
+    #[test]
+    fn test_execute_node_avgpool2d() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        // Create [1, 2, 4, 4] tensor with known values
+        let input_data = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ];
+        let input_tensor = Tensor::new(vec![1, 2, 4, 4], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let avgpool_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "avgpool_test".to_string(),
+                layer_type: "avgpool2d".to_string(),
+                input_shape: vec![1, 2, 4, 4],
+                output_shape: vec![1, 2, 2, 2],
+                parameter_count: 0,
+                flops: 32,
+            },
+            node_type: NodeType::AvgPool2D {
+                kernel_size: (2, 2),
+                stride: (2, 2),
+                padding: (0, 0),
+            },
+            inputs: vec!["input_0".to_string()],
+            output: "avgpool_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&avgpool_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, 2, 2, 2]);
+    }
+
+    #[test]
+    fn test_execute_node_maxpool2d() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        // Create [1, 2, 4, 4] tensor
+        let input_data = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ];
+        let input_tensor = Tensor::new(vec![1, 2, 4, 4], TensorData::Float32(input_data));
+        graph
+            .tensor_cache
+            .insert("input_0".to_string(), input_tensor);
+
+        let maxpool_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "maxpool_test".to_string(),
+                layer_type: "maxpool2d".to_string(),
+                input_shape: vec![1, 2, 4, 4],
+                output_shape: vec![1, 2, 2, 2],
+                parameter_count: 0,
+                flops: 32,
+            },
+            node_type: NodeType::MaxPool2D {
+                kernel_size: (2, 2),
+                stride: (2, 2),
+                padding: (0, 0),
+            },
+            inputs: vec!["input_0".to_string()],
+            output: "maxpool_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&maxpool_node);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(output.shape, vec![1, 2, 2, 2]);
+    }
+
+    #[test]
+    fn test_execute_node_input_not_found() {
+        let mut graph = ExecutionGraph {
+            nodes: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            tensor_cache: HashMap::new(),
+        };
+
+        let relu_node = GraphNode {
+            layer_info: LayerInfo {
+                name: "relu_test".to_string(),
+                layer_type: "relu".to_string(),
+                input_shape: vec![1, 6],
+                output_shape: vec![1, 6],
+                parameter_count: 0,
+                flops: 6,
+            },
+            node_type: NodeType::ReLU,
+            inputs: vec!["missing_input".to_string()],
+            output: "relu_out".to_string(),
+            parameters: HashMap::new(),
+            config: NodeConfig::default(),
+        };
+
+        let result = graph.execute_node(&relu_node);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inference_no_model_loaded() {
+        let config = InferenceConfig::default();
+        let mut engine = InferenceEngine::new(config);
+
+        let input_data = vec![0.5f32; 3 * 224 * 224];
+        let input_tensor = Tensor::new(vec![1, 3, 224, 224], TensorData::Float32(input_data));
+
+        let result = engine.inference(vec![input_tensor]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inference_wrong_input_count() {
+        env_logger::try_init().ok();
+
+        let config = InferenceConfig::default();
+        let mut engine = InferenceEngine::new(config);
+        let model = create_test_model();
+
+        engine.load_model(&model).unwrap();
+
+        // Model expects 1 input, provide 2
+        let input1 = Tensor::new(
+            vec![1, 3, 224, 224],
+            TensorData::Float32(vec![0.5; 3 * 224 * 224]),
+        );
+        let input2 = Tensor::new(
+            vec![1, 3, 224, 224],
+            TensorData::Float32(vec![0.5; 3 * 224 * 224]),
+        );
+
+        let result = engine.inference(vec![input1, input2]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_node_from_layer_conv2d() {
+        let layer = LayerInfo {
+            name: "conv_test".to_string(),
+            layer_type: "conv2d".to_string(),
+            input_shape: vec![1, 3, 224, 224],
+            output_shape: vec![1, 64, 224, 224],
+            parameter_count: 1728,
+            flops: 1_000_000,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::Conv2D { .. }));
+        assert!(node.parameters.contains_key("weight"));
+        assert!(node.parameters.contains_key("bias"));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_linear() {
+        let layer = LayerInfo {
+            name: "linear_test".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 512],
+            output_shape: vec![1, 256],
+            parameter_count: 131328,
+            flops: 131072,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::Linear));
+        assert!(node.parameters.contains_key("weight"));
+        assert!(node.parameters.contains_key("bias"));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_relu() {
+        let layer = LayerInfo {
+            name: "relu_test".to_string(),
+            layer_type: "relu".to_string(),
+            input_shape: vec![1, 64],
+            output_shape: vec![1, 64],
+            parameter_count: 0,
+            flops: 64,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::ReLU));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_sigmoid() {
+        let layer = LayerInfo {
+            name: "sigmoid_test".to_string(),
+            layer_type: "sigmoid".to_string(),
+            input_shape: vec![1, 64],
+            output_shape: vec![1, 64],
+            parameter_count: 0,
+            flops: 64,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::Sigmoid));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_tanh() {
+        let layer = LayerInfo {
+            name: "tanh_test".to_string(),
+            layer_type: "tanh".to_string(),
+            input_shape: vec![1, 64],
+            output_shape: vec![1, 64],
+            parameter_count: 0,
+            flops: 64,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::Tanh));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_maxpool2d() {
+        let layer = LayerInfo {
+            name: "maxpool_test".to_string(),
+            layer_type: "maxpool2d".to_string(),
+            input_shape: vec![1, 64, 224, 224],
+            output_shape: vec![1, 64, 112, 112],
+            parameter_count: 0,
+            flops: 100_000,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::MaxPool2D { .. }));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_avgpool2d() {
+        let layer = LayerInfo {
+            name: "avgpool_test".to_string(),
+            layer_type: "avgpool2d".to_string(),
+            input_shape: vec![1, 64, 224, 224],
+            output_shape: vec![1, 64, 112, 112],
+            parameter_count: 0,
+            flops: 100_000,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::AvgPool2D { .. }));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_batchnorm() {
+        let layer = LayerInfo {
+            name: "batchnorm_test".to_string(),
+            layer_type: "batchnorm".to_string(),
+            input_shape: vec![1, 64, 224, 224],
+            output_shape: vec![1, 64, 224, 224],
+            parameter_count: 256,
+            flops: 200_000,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::BatchNorm));
+        assert!(node.parameters.contains_key("weight"));
+        assert!(node.parameters.contains_key("bias"));
+        assert!(node.parameters.contains_key("running_mean"));
+        assert!(node.parameters.contains_key("running_var"));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_flatten() {
+        let layer = LayerInfo {
+            name: "flatten_test".to_string(),
+            layer_type: "flatten".to_string(),
+            input_shape: vec![1, 64, 7, 7],
+            output_shape: vec![1, 3136],
+            parameter_count: 0,
+            flops: 0,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_ok());
+
+        let node = result.unwrap();
+        assert!(matches!(node.node_type, NodeType::Flatten));
+    }
+
+    #[test]
+    fn test_create_node_from_layer_unsupported() {
+        let layer = LayerInfo {
+            name: "unsupported_test".to_string(),
+            layer_type: "custom_layer".to_string(),
+            input_shape: vec![1, 64],
+            output_shape: vec![1, 64],
+            parameter_count: 0,
+            flops: 0,
+        };
+
+        let result =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_memory_pool_exhaustion() {
+        let mut pool = MemoryPool::new(0.002, 1024); // 0.002MB = ~2KB, 1KB blocks = max 2 blocks
+
+        let block1 = pool.allocate();
+        assert!(block1.is_some());
+
+        let block2 = pool.allocate();
+        assert!(block2.is_some());
+
+        // Should fail - pool exhausted
+        let block3 = pool.allocate();
+        assert!(block3.is_none());
+    }
+
+    #[test]
+    fn test_memory_pool_deallocate_reuse() {
+        let mut pool = MemoryPool::new(0.002, 1024); // ~2 blocks max
+
+        let block1 = pool.allocate();
+        assert!(block1.is_some());
+
+        let block2 = pool.allocate();
+        assert!(block2.is_some());
+
+        // Pool exhausted
+        assert!(pool.allocate().is_none());
+
+        // Deallocate block1
+        pool.deallocate(block1.unwrap());
+
+        // Should now succeed
+        let block3 = pool.allocate();
+        assert!(block3.is_some());
+    }
+
+    #[test]
+    fn test_inference_stats_reset() {
+        let config = InferenceConfig::default();
+        let mut engine = InferenceEngine::new(config);
+
+        // Manually set some stats
+        engine.stats.inference_count = 5;
+        engine.stats.total_time_ms = 123.45;
+        engine.stats.peak_memory_mb = 10.0;
+
+        engine.reset_stats();
+
+        assert_eq!(engine.stats.inference_count, 0);
+        assert_eq!(engine.stats.total_time_ms, 0.0);
+        assert_eq!(engine.stats.peak_memory_mb, 0.0);
+    }
+
+    #[test]
+    fn test_inference_config_custom() {
+        let config = InferenceConfig {
+            batch_size: 8,
+            memory_optimization: 2,
+            enable_parallel: false,
+            max_memory_pool_mb: 64.0,
+            enable_fusion: false,
+        };
+
+        assert_eq!(config.batch_size, 8);
+        assert_eq!(config.memory_optimization, 2);
+        assert!(!config.enable_parallel);
+        assert_eq!(config.max_memory_pool_mb, 64.0);
+        assert!(!config.enable_fusion);
+    }
 }

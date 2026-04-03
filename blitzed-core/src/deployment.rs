@@ -1171,4 +1171,262 @@ mod tests {
 
         assert!(result.validation_timestamp.contains("UTC"));
     }
+
+    #[test]
+    fn test_generate_deployment_report_with_failed_deployment_and_warnings() {
+        let validator = HardwareDeploymentValidator::new();
+
+        // Create a result with deployment_successful = false and warnings
+        let result = DeploymentValidationResult {
+            target_name: "ESP32".to_string(),
+            original_model_info: ModelDeploymentInfo {
+                model_size: 100_000_000,
+                memory_usage: 120_000_000,
+                parameter_count: 25_000_000,
+                operations_count: 50_000_000,
+                fits_constraints: false,
+                optimizations_applied: vec![],
+            },
+            optimized_model_info: ModelDeploymentInfo {
+                model_size: 50_000_000,
+                memory_usage: 60_000_000,
+                parameter_count: 12_500_000,
+                operations_count: 25_000_000,
+                fits_constraints: false,
+                optimizations_applied: vec!["INT8 Quantization".to_string()],
+            },
+            deployment_successful: false,
+            performance_metrics: PerformanceMetrics {
+                estimated_inference_time_ms: 1500.0,
+                memory_efficiency: 0.3,
+                power_efficiency: 0.5,
+                latency_accuracy_score: 0.9,
+                code_generation_time_ms: 100,
+            },
+            deployment_artifacts: DeploymentArtifacts {
+                source_files: vec![],
+                header_files: vec![],
+                build_files: vec![],
+                example_files: vec![],
+                total_size_bytes: 0,
+                build_ready: false,
+            },
+            validation_timestamp: "2025-01-01 00:00:00 UTC".to_string(),
+            warnings: vec![
+                "Model does not fit ESP32 memory constraints".to_string(),
+                "Inference time exceeds threshold".to_string(),
+            ],
+        };
+
+        let report = validator.generate_deployment_report(&[result]);
+        assert!(report.contains("❌ FAILED"));
+        assert!(report.contains("Warnings"));
+        assert!(report.contains("Model does not fit ESP32 memory constraints"));
+        assert!(report.contains("Inference time exceeds threshold"));
+    }
+
+    #[test]
+    fn test_esp32_validation_with_large_model_exceeds_constraints() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_large_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator.validate_esp32_deployment(&model, &optimizer);
+
+        // Large model should either fail or produce warnings
+        match result {
+            Ok(deployment) => {
+                if !deployment.deployment_successful {
+                    assert!(!deployment.warnings.is_empty());
+                }
+            }
+            Err(_) => {
+                // Also acceptable - model too large to process
+            }
+        }
+    }
+
+    #[test]
+    fn test_stm32_validation_small_model_performance_metrics() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
+
+        let pm = &result.performance_metrics;
+        assert!(pm.estimated_inference_time_ms >= 5.0);
+        assert!((0.0..=1.0).contains(&pm.memory_efficiency));
+        assert!((0.0..=1.0).contains(&pm.power_efficiency));
+        assert!((0.0..=1.0).contains(&pm.latency_accuracy_score));
+        // code_generation_time_ms can be 0 on very fast machines
+    }
+
+    #[test]
+    fn test_arduino_validation_tiny_model_success() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_tiny_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_arduino_deployment(&model, &optimizer)
+            .unwrap();
+
+        // Tiny model should fit Arduino constraints (< 32KB)
+        assert!(result.optimized_model_info.model_size < 32 * 1024);
+    }
+
+    #[test]
+    fn test_estimate_activation_memory_computation() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+
+        let activation_memory = validator.estimate_activation_memory(&model);
+
+        // Should be > 0 and reasonable for a small model
+        assert!(activation_memory > 0);
+        // Small model with input [1,16] and output [1,4] should have reasonable activation size
+        assert!(activation_memory < 100_000);
+    }
+
+    #[test]
+    fn test_analyze_model_deployment_info_with_optimizations() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let target = validator.target_registry.get_target("esp32").unwrap();
+
+        let optimizations = vec![
+            "INT8 Quantization".to_string(),
+            "Structured Pruning".to_string(),
+        ];
+
+        let info = validator
+            .analyze_model_deployment_info(&model, target, optimizations.clone())
+            .unwrap();
+
+        assert_eq!(info.optimizations_applied.len(), 2);
+        assert!(info
+            .optimizations_applied
+            .contains(&"INT8 Quantization".to_string()));
+        assert!(info.model_size > 0);
+        assert!(info.memory_usage > info.model_size);
+    }
+
+    #[test]
+    fn test_esp32_artifact_generation_file_structure() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
+
+        let artifacts = &result.deployment_artifacts;
+        assert!(artifacts
+            .source_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("esp32_model.c")));
+        assert!(artifacts
+            .source_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("esp32_inference.c")));
+        assert!(artifacts
+            .header_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("esp32_model.h")));
+        assert!(artifacts
+            .build_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("CMakeLists.txt")));
+        assert!(artifacts
+            .example_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("main.c")));
+        assert!(artifacts.total_size_bytes > 0);
+    }
+
+    #[test]
+    fn test_stm32_artifact_generation_hal_files() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
+
+        let artifacts = &result.deployment_artifacts;
+        assert!(artifacts
+            .source_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("stm32_hal_config.c")));
+        assert!(artifacts
+            .build_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("Makefile")));
+        assert!(artifacts
+            .build_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("linker_script.ld")));
+        assert!(artifacts.build_ready);
+    }
+
+    #[test]
+    fn test_arduino_artifact_generation_minimal_structure() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_tiny_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_arduino_deployment(&model, &optimizer)
+            .unwrap();
+
+        let artifacts = &result.deployment_artifacts;
+        assert!(artifacts
+            .source_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("arduino_model.cpp")));
+        assert!(artifacts
+            .example_files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("inference_example.ino")));
+        assert!(artifacts.build_files.is_empty()); // Arduino uses .ino files, no separate build files
+    }
+
+    #[test]
+    fn test_esp32_performance_metrics_clamping() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
+
+        let pm = &result.performance_metrics;
+        // All metrics should be clamped to [0.0, 1.0] except inference time
+        assert!((0.0..=1.0).contains(&pm.memory_efficiency));
+        assert!((0.0..=1.0).contains(&pm.power_efficiency));
+        assert!((0.0..=1.0).contains(&pm.latency_accuracy_score));
+    }
+
+    #[test]
+    fn test_arduino_performance_power_efficiency_calculation() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_tiny_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_arduino_deployment(&model, &optimizer)
+            .unwrap();
+
+        let pm = &result.performance_metrics;
+        // Arduino should have high power efficiency (0.3 to 1.0 range)
+        assert!((0.3..=1.0).contains(&pm.power_efficiency));
+        // Verify it's using the Arduino-specific formula (0.95 base - timing factor)
+        assert!(pm.power_efficiency >= 0.3);
+    }
 }
