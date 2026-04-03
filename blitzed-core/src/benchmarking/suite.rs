@@ -688,7 +688,9 @@ impl BenchmarkSuite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::benchmarking::{BenchmarkConfig, CompetitiveFramework, HardwarePlatform, StandardModel};
+    use crate::benchmarking::{
+        BenchmarkConfig, CompetitiveFramework, HardwarePlatform, StandardModel,
+    };
     use std::time::Duration;
 
     #[test]
@@ -747,7 +749,10 @@ mod tests {
     fn test_run_benchmarks_multiple_frameworks() {
         // Test with both Blitzed and TensorFlow Lite frameworks
         let config = BenchmarkConfig {
-            frameworks: vec![CompetitiveFramework::Blitzed, CompetitiveFramework::TensorFlowLite],
+            frameworks: vec![
+                CompetitiveFramework::Blitzed,
+                CompetitiveFramework::TensorFlowLite,
+            ],
             platforms: vec![HardwarePlatform::X86Desktop],
             models: vec![StandardModel::MobileNetV2],
             warmup_runs: 1,
@@ -764,10 +769,14 @@ mod tests {
         assert_eq!(summary.results.len(), 2);
 
         // Verify we have one result from each framework
-        let blitzed_results: Vec<_> = summary.results.iter()
+        let blitzed_results: Vec<_> = summary
+            .results
+            .iter()
             .filter(|r| r.framework == CompetitiveFramework::Blitzed)
             .collect();
-        let tflite_results: Vec<_> = summary.results.iter()
+        let tflite_results: Vec<_> = summary
+            .results
+            .iter()
             .filter(|r| r.framework == CompetitiveFramework::TensorFlowLite)
             .collect();
 
@@ -779,7 +788,10 @@ mod tests {
     fn test_run_benchmarks_has_comparisons() {
         // Test that comparisons are calculated when we have multiple frameworks
         let config = BenchmarkConfig {
-            frameworks: vec![CompetitiveFramework::Blitzed, CompetitiveFramework::TensorFlowLite],
+            frameworks: vec![
+                CompetitiveFramework::Blitzed,
+                CompetitiveFramework::TensorFlowLite,
+            ],
             platforms: vec![HardwarePlatform::X86Desktop],
             models: vec![StandardModel::MobileNetV2],
             warmup_runs: 1,
@@ -796,10 +808,12 @@ mod tests {
         assert!(!summary.comparisons.is_empty());
 
         // Should have comparisons between Blitzed and TFLite in both directions
-        let has_blitzed_vs_tflite = summary.comparisons.keys()
-            .any(|(b, t)| *b == CompetitiveFramework::Blitzed && *t == CompetitiveFramework::TensorFlowLite);
-        let has_tflite_vs_blitzed = summary.comparisons.keys()
-            .any(|(b, t)| *b == CompetitiveFramework::TensorFlowLite && *t == CompetitiveFramework::Blitzed);
+        let has_blitzed_vs_tflite = summary.comparisons.keys().any(|(b, t)| {
+            *b == CompetitiveFramework::Blitzed && *t == CompetitiveFramework::TensorFlowLite
+        });
+        let has_tflite_vs_blitzed = summary.comparisons.keys().any(|(b, t)| {
+            *b == CompetitiveFramework::TensorFlowLite && *t == CompetitiveFramework::Blitzed
+        });
 
         assert!(has_blitzed_vs_tflite || has_tflite_vs_blitzed);
     }
@@ -853,12 +867,17 @@ mod tests {
             };
 
             let suite = BenchmarkSuite::new(config);
-            let summary = suite.run_benchmarks()
-                .expect(&format!("Benchmark should succeed for {:?}", model));
+            let summary = suite
+                .run_benchmarks()
+                .unwrap_or_else(|_| panic!("Benchmark should succeed for {:?}", model));
 
             // Each model should produce 1 successful result
             assert_eq!(summary.results.len(), 1);
-            assert!(summary.results[0].success, "Model {:?} should succeed", model);
+            assert!(
+                summary.results[0].success,
+                "Model {:?} should succeed",
+                model
+            );
             assert_eq!(summary.results[0].model, model);
         }
     }

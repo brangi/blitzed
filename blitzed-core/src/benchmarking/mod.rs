@@ -431,7 +431,10 @@ mod tests {
 
     #[test]
     fn test_competitive_framework_names() {
-        assert_eq!(CompetitiveFramework::TensorFlowLite.name(), "TensorFlow Lite");
+        assert_eq!(
+            CompetitiveFramework::TensorFlowLite.name(),
+            "TensorFlow Lite"
+        );
         assert_eq!(CompetitiveFramework::OnnxRuntime.name(), "ONNX Runtime");
         assert_eq!(CompetitiveFramework::PyTorchMobile.name(), "PyTorch Mobile");
         assert_eq!(CompetitiveFramework::Blitzed.name(), "Blitzed");
@@ -448,7 +451,10 @@ mod tests {
     #[test]
     fn test_hardware_platform_names() {
         assert_eq!(HardwarePlatform::ESP32.name(), "ESP32");
-        assert_eq!(HardwarePlatform::ArduinoNano33BLE.name(), "Arduino Nano 33 BLE");
+        assert_eq!(
+            HardwarePlatform::ArduinoNano33BLE.name(),
+            "Arduino Nano 33 BLE"
+        );
         assert_eq!(HardwarePlatform::STM32F4.name(), "STM32F4");
         assert_eq!(HardwarePlatform::RaspberryPi4.name(), "Raspberry Pi 4");
         assert_eq!(HardwarePlatform::MobileARM.name(), "Mobile ARM");
@@ -459,12 +465,27 @@ mod tests {
     #[test]
     fn test_hardware_platform_memory_limits() {
         assert_eq!(HardwarePlatform::ESP32.memory_limit(), 520 * 1024);
-        assert_eq!(HardwarePlatform::ArduinoNano33BLE.memory_limit(), 256 * 1024);
+        assert_eq!(
+            HardwarePlatform::ArduinoNano33BLE.memory_limit(),
+            256 * 1024
+        );
         assert_eq!(HardwarePlatform::STM32F4.memory_limit(), 192 * 1024);
-        assert_eq!(HardwarePlatform::RaspberryPi4.memory_limit(), 4 * 1024 * 1024 * 1024);
-        assert_eq!(HardwarePlatform::MobileARM.memory_limit(), 2 * 1024 * 1024 * 1024);
-        assert_eq!(HardwarePlatform::X86Desktop.memory_limit(), 8 * 1024 * 1024 * 1024);
-        assert_eq!(HardwarePlatform::X86Server.memory_limit(), 32 * 1024 * 1024 * 1024);
+        assert_eq!(
+            HardwarePlatform::RaspberryPi4.memory_limit(),
+            4 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::MobileARM.memory_limit(),
+            2 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::X86Desktop.memory_limit(),
+            8 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            HardwarePlatform::X86Server.memory_limit(),
+            32 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]
@@ -485,17 +506,35 @@ mod tests {
         assert_eq!(StandardModel::ResNet18.name(), "ResNet-18");
         assert_eq!(StandardModel::EfficientNetB0.name(), "EfficientNet-B0");
         assert_eq!(StandardModel::YoloV5Nano.name(), "YOLOv5-Nano");
-        assert_eq!(StandardModel::Custom("MyModel".to_string()).name(), "MyModel");
+        assert_eq!(
+            StandardModel::Custom("MyModel".to_string()).name(),
+            "MyModel"
+        );
     }
 
     #[test]
     fn test_standard_model_input_shapes() {
-        assert_eq!(StandardModel::MobileNetV2.input_shape(), vec![1, 3, 224, 224]);
-        assert_eq!(StandardModel::MobileNetV3Small.input_shape(), vec![1, 3, 224, 224]);
+        assert_eq!(
+            StandardModel::MobileNetV2.input_shape(),
+            vec![1, 3, 224, 224]
+        );
+        assert_eq!(
+            StandardModel::MobileNetV3Small.input_shape(),
+            vec![1, 3, 224, 224]
+        );
         assert_eq!(StandardModel::ResNet18.input_shape(), vec![1, 3, 224, 224]);
-        assert_eq!(StandardModel::EfficientNetB0.input_shape(), vec![1, 3, 224, 224]);
-        assert_eq!(StandardModel::YoloV5Nano.input_shape(), vec![1, 3, 640, 640]);
-        assert_eq!(StandardModel::Custom("test".to_string()).input_shape(), vec![1, 3, 224, 224]);
+        assert_eq!(
+            StandardModel::EfficientNetB0.input_shape(),
+            vec![1, 3, 224, 224]
+        );
+        assert_eq!(
+            StandardModel::YoloV5Nano.input_shape(),
+            vec![1, 3, 640, 640]
+        );
+        assert_eq!(
+            StandardModel::Custom("test".to_string()).input_shape(),
+            vec![1, 3, 224, 224]
+        );
     }
 
     #[test]
@@ -531,8 +570,12 @@ mod tests {
 
         assert_eq!(config.frameworks.len(), 3);
         assert!(config.frameworks.contains(&CompetitiveFramework::Blitzed));
-        assert!(config.frameworks.contains(&CompetitiveFramework::TensorFlowLite));
-        assert!(config.frameworks.contains(&CompetitiveFramework::OnnxRuntime));
+        assert!(config
+            .frameworks
+            .contains(&CompetitiveFramework::TensorFlowLite));
+        assert!(config
+            .frameworks
+            .contains(&CompetitiveFramework::OnnxRuntime));
 
         assert_eq!(config.platforms.len(), 3);
         assert!(config.platforms.contains(&HardwarePlatform::X86Desktop));
@@ -554,11 +597,11 @@ mod tests {
     fn test_benchmark_summary_analysis() {
         // Create mock performance metrics
         let blitzed_metrics = PerformanceMetrics {
-            model_size_bytes: 10_000_000,      // 10MB
+            model_size_bytes: 10_000_000, // 10MB
             avg_inference_time_ms: 50,
             inference_time_stddev_ms: 5.0,
-            peak_memory_usage: 20_000_000,     // 20MB
-            avg_memory_usage: 15_000_000,      // 15MB
+            peak_memory_usage: 20_000_000, // 20MB
+            avg_memory_usage: 15_000_000,  // 15MB
             throughput_ops_per_sec: 20.0,
             accuracy_score: 0.95,
             power_consumption_mw: Some(100.0),
@@ -568,11 +611,11 @@ mod tests {
         };
 
         let tflite_metrics = PerformanceMetrics {
-            model_size_bytes: 15_000_000,      // 15MB
+            model_size_bytes: 15_000_000, // 15MB
             avg_inference_time_ms: 100,
             inference_time_stddev_ms: 10.0,
-            peak_memory_usage: 30_000_000,     // 30MB
-            avg_memory_usage: 25_000_000,      // 25MB
+            peak_memory_usage: 30_000_000, // 30MB
+            avg_memory_usage: 25_000_000,  // 25MB
             throughput_ops_per_sec: 10.0,
             accuracy_score: 0.93,
             power_consumption_mw: Some(150.0),
@@ -582,11 +625,11 @@ mod tests {
         };
 
         let onnx_metrics = PerformanceMetrics {
-            model_size_bytes: 12_000_000,      // 12MB
+            model_size_bytes: 12_000_000, // 12MB
             avg_inference_time_ms: 80,
             inference_time_stddev_ms: 8.0,
-            peak_memory_usage: 25_000_000,     // 25MB
-            avg_memory_usage: 20_000_000,      // 20MB
+            peak_memory_usage: 25_000_000, // 25MB
+            avg_memory_usage: 20_000_000,  // 20MB
             throughput_ops_per_sec: 12.5,
             accuracy_score: 0.94,
             power_consumption_mw: Some(120.0),

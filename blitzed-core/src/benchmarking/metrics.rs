@@ -558,23 +558,16 @@ mod tests {
 
     #[test]
     fn test_simulate_performance_metrics_deterministic() {
-        let metrics1 = simulate_performance_metrics(
-            "Blitzed",
-            "MobileNetV2",
-            "ESP32",
-            1_000_000,
-        );
+        let metrics1 = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
 
-        let metrics2 = simulate_performance_metrics(
-            "Blitzed",
-            "MobileNetV2",
-            "ESP32",
-            1_000_000,
-        );
+        let metrics2 = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
 
         // Same inputs should produce identical results
         assert_eq!(metrics1.model_size_bytes, metrics2.model_size_bytes);
-        assert_eq!(metrics1.avg_inference_time_ms, metrics2.avg_inference_time_ms);
+        assert_eq!(
+            metrics1.avg_inference_time_ms,
+            metrics2.avg_inference_time_ms
+        );
         assert_eq!(metrics1.peak_memory_usage, metrics2.peak_memory_usage);
         assert_eq!(metrics1.accuracy_score, metrics2.accuracy_score);
         assert_eq!(metrics1.cpu_utilization, metrics2.cpu_utilization);
@@ -582,33 +575,26 @@ mod tests {
 
     #[test]
     fn test_simulate_performance_metrics_framework_differences() {
-        let blitzed_metrics = simulate_performance_metrics(
-            "Blitzed",
-            "MobileNetV2",
-            "ESP32",
-            1_000_000,
-        );
+        let blitzed_metrics =
+            simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
 
-        let tflite_metrics = simulate_performance_metrics(
-            "TensorFlow Lite",
-            "MobileNetV2",
-            "ESP32",
-            1_000_000,
-        );
+        let tflite_metrics =
+            simulate_performance_metrics("TensorFlow Lite", "MobileNetV2", "ESP32", 1_000_000);
 
         // Different frameworks should produce different metrics
-        assert_ne!(blitzed_metrics.model_size_bytes, tflite_metrics.model_size_bytes);
-        assert_ne!(blitzed_metrics.avg_inference_time_ms, tflite_metrics.avg_inference_time_ms);
+        assert_ne!(
+            blitzed_metrics.model_size_bytes,
+            tflite_metrics.model_size_bytes
+        );
+        assert_ne!(
+            blitzed_metrics.avg_inference_time_ms,
+            tflite_metrics.avg_inference_time_ms
+        );
     }
 
     #[test]
     fn test_simulate_performance_metrics_blitzed_characteristics() {
-        let metrics = simulate_performance_metrics(
-            "Blitzed",
-            "MobileNetV2",
-            "ESP32",
-            1_000_000,
-        );
+        let metrics = simulate_performance_metrics("Blitzed", "MobileNetV2", "ESP32", 1_000_000);
 
         // Blitzed should have reasonable non-zero values
         assert!(metrics.model_size_bytes > 0);
@@ -629,11 +615,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_runner_new() {
-        let runner = BenchmarkRunner::new(
-            2,
-            5,
-            Duration::from_secs(5),
-        );
+        let runner = BenchmarkRunner::new(2, 5, Duration::from_secs(5));
 
         assert_eq!(runner.warmup_runs, 2);
         assert_eq!(runner.benchmark_runs, 5);
@@ -642,11 +624,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_runner_run() {
-        let runner = BenchmarkRunner::new(
-            2,
-            3,
-            Duration::from_secs(5),
-        );
+        let runner = BenchmarkRunner::new(2, 3, Duration::from_secs(5));
 
         let mut counter = 0;
         let result = runner.run_benchmark(|| {

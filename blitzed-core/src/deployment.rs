@@ -997,7 +997,10 @@ mod tests {
     fn test_validator_new_and_default() {
         let v1 = HardwareDeploymentValidator::new();
         let v2 = HardwareDeploymentValidator::default();
-        assert_eq!(v1.config().max_inference_time_ms, v2.config().max_inference_time_ms);
+        assert_eq!(
+            v1.config().max_inference_time_ms,
+            v2.config().max_inference_time_ms
+        );
     }
 
     #[test]
@@ -1031,7 +1034,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
 
         assert_eq!(result.target_name, "ESP32");
         assert!(result.performance_metrics.estimated_inference_time_ms > 0.0);
@@ -1046,7 +1051,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_tiny_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_arduino_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_arduino_deployment(&model, &optimizer)
+            .unwrap();
 
         assert_eq!(result.target_name, "Arduino Nano 33 BLE");
         assert!(result.performance_metrics.estimated_inference_time_ms >= 10.0);
@@ -1058,7 +1065,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_stm32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
 
         assert_eq!(result.target_name, "STM32F4");
         assert!(result.performance_metrics.estimated_inference_time_ms >= 5.0);
@@ -1077,7 +1086,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
         let report = validator.generate_deployment_report(&[result]);
 
         assert!(report.contains("ESP32 Deployment"));
@@ -1091,8 +1102,12 @@ mod tests {
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
 
-        let esp = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
-        let stm = validator.validate_stm32_deployment(&model, &optimizer).unwrap();
+        let esp = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
+        let stm = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
         let report = validator.generate_deployment_report(&[esp, stm]);
 
         assert!(report.contains("ESP32"));
@@ -1104,7 +1119,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
 
         let m = &result.performance_metrics;
         assert!(m.estimated_inference_time_ms > 0.0);
@@ -1134,7 +1151,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
 
         assert!(!result.deployment_artifacts.source_files.is_empty());
         assert!(!result.deployment_artifacts.header_files.is_empty());
@@ -1146,7 +1165,9 @@ mod tests {
         let validator = HardwareDeploymentValidator::new();
         let model = create_small_model();
         let optimizer = Optimizer::new(crate::Config::default());
-        let result = validator.validate_esp32_deployment(&model, &optimizer).unwrap();
+        let result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
 
         assert!(result.validation_timestamp.contains("UTC"));
     }
