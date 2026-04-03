@@ -5,7 +5,6 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/brangi/blitzed)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Build Status](https://github.com/brangi/blitzed/workflows/CI/badge.svg)](https://github.com/brangi/blitzed/actions)
-[![Tests](https://github.com/brangi/blitzed/workflows/Tests/badge.svg)](https://github.com/brangi/blitzed/actions)
 [![codecov](https://codecov.io/gh/brangi/blitzed/branch/main/graph/badge.svg)](https://codecov.io/gh/brangi/blitzed)
 
 **Ultra-fast edge AI optimization framework for deploying neural networks on microcontrollers.**
