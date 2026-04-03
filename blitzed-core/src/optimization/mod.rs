@@ -67,3 +67,56 @@ impl OptimizationImpact {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_optimization_impact_combine_empty() {
+        let impacts: Vec<OptimizationImpact> = vec![];
+        let result = OptimizationImpact::combine(&impacts);
+        assert_eq!(result.size_reduction, 1.0);
+        assert_eq!(result.speed_improvement, 1.0);
+        assert_eq!(result.accuracy_loss, 0.0);
+        assert_eq!(result.memory_reduction, 1.0);
+    }
+
+    #[test]
+    fn test_optimization_impact_combine_single() {
+        let impact = OptimizationImpact {
+            size_reduction: 0.5,
+            speed_improvement: 2.0,
+            accuracy_loss: 1.5,
+            memory_reduction: 0.75,
+        };
+        let impacts = vec![impact.clone()];
+        let result = OptimizationImpact::combine(&impacts);
+        assert_eq!(result.size_reduction, 0.5);
+        assert_eq!(result.speed_improvement, 2.0);
+        assert_eq!(result.accuracy_loss, 1.5);
+        assert_eq!(result.memory_reduction, 0.75);
+    }
+
+    #[test]
+    fn test_optimization_impact_combine_multiple() {
+        let impact1 = OptimizationImpact {
+            size_reduction: 0.5,
+            speed_improvement: 2.0,
+            accuracy_loss: 1.0,
+            memory_reduction: 0.8,
+        };
+        let impact2 = OptimizationImpact {
+            size_reduction: 0.4,
+            speed_improvement: 1.5,
+            accuracy_loss: 0.5,
+            memory_reduction: 0.9,
+        };
+        let impacts = vec![impact1, impact2];
+        let result = OptimizationImpact::combine(&impacts);
+        assert_eq!(result.size_reduction, 0.5 * 0.4);
+        assert_eq!(result.speed_improvement, 2.0 * 1.5);
+        assert_eq!(result.accuracy_loss, 1.0 + 0.5);
+        assert_eq!(result.memory_reduction, 0.8 * 0.9);
+    }
+}

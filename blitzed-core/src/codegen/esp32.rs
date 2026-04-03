@@ -141,3 +141,70 @@ impl Default for Esp32CodeGen {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LayerInfo, ModelData, ModelFormat, ModelInfo};
+    use crate::Model;
+
+    fn create_test_model() -> Model {
+        let layers = vec![LayerInfo {
+            name: "fc1".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 16],
+            output_shape: vec![1, 8],
+            parameter_count: 136,
+            flops: 128,
+        }];
+        let info = ModelInfo {
+            format: ModelFormat::PyTorch,
+            input_shapes: vec![vec![1, 16]],
+            output_shapes: vec![vec![1, 8]],
+            parameter_count: 136,
+            model_size_bytes: 544,
+            operations_count: 128,
+            layers,
+        };
+        Model {
+            info,
+            data: ModelData::Raw(vec![0u8; 544]),
+        }
+    }
+
+    #[test]
+    fn test_esp32_codegen_new() {
+        let _ = Esp32CodeGen::new();
+    }
+
+    #[test]
+    fn test_esp32_generate() {
+        let gen = Esp32CodeGen::new();
+        let model = create_test_model();
+        let dir = std::env::temp_dir().join(format!("blitzed_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|_| panic!("Failed to create temp directory: {}", dir.display()));
+
+        let result = gen.generate(&model, &dir);
+        assert!(result.is_ok());
+
+        let generated = result.unwrap();
+        assert!(!generated.implementation_file.is_empty());
+        assert!(generated.implementation_file.contains("ESP32"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_esp32_target_name() {
+        let gen = Esp32CodeGen::new();
+        assert_eq!(gen.target_name(), "esp32");
+    }
+
+    #[test]
+    fn test_esp32_dependencies() {
+        let gen = Esp32CodeGen::new();
+        let deps = gen.dependencies();
+        assert!(!deps.is_empty());
+    }
+}

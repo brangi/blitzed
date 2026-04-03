@@ -66,3 +66,46 @@ impl Default for MobileTarget {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mobile_constraints() {
+        let target = MobileTarget::new();
+        let constraints = target.constraints();
+        assert_eq!(constraints.memory_limit, 104857600);
+        assert_eq!(constraints.storage_limit, 524288000);
+        assert_eq!(constraints.cpu_frequency, 2000);
+        assert_eq!(constraints.architecture, "ARM64");
+        assert_eq!(constraints.word_size, 64);
+        assert!(constraints.has_fpu);
+        assert_eq!(constraints.accelerators.len(), 3);
+        assert_eq!(constraints.accelerators[0], "Neural Engine");
+        assert_eq!(constraints.accelerators[1], "GPU");
+        assert_eq!(constraints.accelerators[2], "DSP");
+    }
+
+    #[test]
+    fn test_mobile_name() {
+        let target = MobileTarget::new();
+        assert_eq!(target.name(), "Mobile");
+    }
+
+    #[test]
+    fn test_mobile_optimization_strategy() {
+        let target = MobileTarget::new();
+        let strategy = target.optimization_strategy();
+        assert!(!strategy.aggressive_quantization);
+        assert!(!strategy.enable_pruning);
+        assert_eq!(strategy.target_precision, "fp16");
+        assert!(!strategy.memory_optimization);
+        assert!(strategy.speed_optimization);
+    }
+
+    #[test]
+    fn test_mobile_default() {
+        let _target = MobileTarget::default();
+    }
+}
