@@ -394,14 +394,17 @@ impl HardwareDeploymentValidator {
     }
 
     /// Generate ESP32-specific deployment artifacts
+    ///
+    /// NOTE: This returns a structural description of expected artifacts, not actual files.
+    /// For real ESP32 project generation with trained weights, use
+    /// `Esp32CodeGen::generate_from_weights()` which creates a complete ESP-IDF project.
     fn generate_esp32_artifacts(
         &self,
         _model: &Model,
         optimization_result: &crate::optimization::OptimizationResult,
     ) -> Result<DeploymentArtifacts> {
-        log::debug!("Generating ESP32 deployment artifacts");
+        log::debug!("Generating ESP32 deployment artifact descriptions (structural only)");
 
-        // Simulate artifact generation (would use actual code generator)
         let mut artifacts = DeploymentArtifacts {
             source_files: vec![
                 PathBuf::from("esp32_model.c"),
@@ -417,49 +420,51 @@ impl HardwareDeploymentValidator {
                 PathBuf::from("partition_table.csv"),
             ],
             total_size_bytes: 0,
-            build_ready: true,
+            build_ready: false, // Structural description only — use Esp32CodeGen for real files
         };
 
-        // Estimate artifact sizes based on model complexity
-        let base_size = 15000; // Base ESP32 code size
+        let base_size = 15000;
         let model_size = optimization_result.optimized_size;
-        artifacts.total_size_bytes = base_size + model_size + 5000; // Add overhead
+        artifacts.total_size_bytes = base_size + model_size + 5000;
 
         Ok(artifacts)
     }
 
     /// Generate Arduino-specific deployment artifacts
+    ///
+    /// NOTE: Returns structural description only, not actual generated files.
     fn generate_arduino_artifacts(
         &self,
         _model: &Model,
         optimization_result: &crate::optimization::OptimizationResult,
     ) -> Result<DeploymentArtifacts> {
-        log::debug!("Generating Arduino deployment artifacts");
+        log::debug!("Generating Arduino deployment artifact descriptions (structural only)");
 
         let mut artifacts = DeploymentArtifacts {
             source_files: vec![PathBuf::from("arduino_model.cpp")],
             header_files: vec![PathBuf::from("arduino_model.h")],
-            build_files: vec![], // Arduino uses .ino files
+            build_files: vec![],
             example_files: vec![PathBuf::from("inference_example.ino")],
             total_size_bytes: 0,
-            build_ready: true,
+            build_ready: false, // Structural description only
         };
 
-        // Arduino artifacts are typically smaller
-        let base_size = 8000; // Base Arduino code size
+        let base_size = 8000;
         let model_size = optimization_result.optimized_size;
-        artifacts.total_size_bytes = base_size + model_size + 2000; // Add minimal overhead
+        artifacts.total_size_bytes = base_size + model_size + 2000;
 
         Ok(artifacts)
     }
 
     /// Generate STM32-specific deployment artifacts
+    ///
+    /// NOTE: Returns structural description only, not actual generated files.
     fn generate_stm32_artifacts(
         &self,
         _model: &Model,
         optimization_result: &crate::optimization::OptimizationResult,
     ) -> Result<DeploymentArtifacts> {
-        log::debug!("Generating STM32 deployment artifacts");
+        log::debug!("Generating STM32 deployment artifact descriptions (structural only)");
 
         let mut artifacts = DeploymentArtifacts {
             source_files: vec![
@@ -474,13 +479,12 @@ impl HardwareDeploymentValidator {
             build_files: vec![PathBuf::from("Makefile"), PathBuf::from("linker_script.ld")],
             example_files: vec![PathBuf::from("main.c"), PathBuf::from("system_config.c")],
             total_size_bytes: 0,
-            build_ready: true,
+            build_ready: false, // Structural description only
         };
 
-        // STM32 artifacts include HAL and FPU optimization
-        let base_size = 20000; // Base STM32 HAL code size
+        let base_size = 20000;
         let model_size = optimization_result.optimized_size;
-        artifacts.total_size_bytes = base_size + model_size + 8000; // Add HAL overhead
+        artifacts.total_size_bytes = base_size + model_size + 8000;
 
         Ok(artifacts)
     }
@@ -827,7 +831,7 @@ impl HardwareDeploymentValidator {
             build_files: vec!["Makefile".into()],
             example_files: vec![output_dir.join("blitzed_benchmark")],
             total_size_bytes: deployment_size,
-            build_ready: true,
+            build_ready: false, // Structural description only
         })
     }
 
@@ -1043,7 +1047,10 @@ mod tests {
         assert!(result.performance_metrics.memory_efficiency >= 0.0);
         assert!(result.performance_metrics.memory_efficiency <= 1.0);
         assert!(!result.deployment_artifacts.source_files.is_empty());
-        assert!(result.deployment_artifacts.build_ready);
+        assert!(
+            !result.deployment_artifacts.build_ready,
+            "Structural descriptions should not claim build_ready"
+        );
     }
 
     #[test]
@@ -1371,7 +1378,10 @@ mod tests {
             .build_files
             .iter()
             .any(|f| f.to_string_lossy().contains("linker_script.ld")));
-        assert!(artifacts.build_ready);
+        assert!(
+            !artifacts.build_ready,
+            "Structural descriptions should not claim build_ready"
+        );
     }
 
     #[test]
@@ -1428,5 +1438,64 @@ mod tests {
         assert!((0.3..=1.0).contains(&pm.power_efficiency));
         // Verify it's using the Arduino-specific formula (0.95 base - timing factor)
         assert!(pm.power_efficiency >= 0.3);
+    }
+
+    #[test]
+    fn test_all_artifact_generators_return_build_ready_false() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let esp32_result = validator
+            .validate_esp32_deployment(&model, &optimizer)
+            .unwrap();
+        assert!(
+            !esp32_result.deployment_artifacts.build_ready,
+            "ESP32 artifacts must have build_ready == false (structural description only)"
+        );
+
+        let arduino_result = validator
+            .validate_arduino_deployment(&model, &optimizer)
+            .unwrap();
+        assert!(
+            !arduino_result.deployment_artifacts.build_ready,
+            "Arduino artifacts must have build_ready == false (structural description only)"
+        );
+
+        let stm32_result = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
+        assert!(
+            !stm32_result.deployment_artifacts.build_ready,
+            "STM32 artifacts must have build_ready == false (structural description only)"
+        );
+    }
+
+    #[test]
+    fn test_stm32_warns_about_manual_build_config() {
+        let validator = HardwareDeploymentValidator::new();
+        let model = create_small_model();
+        let optimizer = Optimizer::new(crate::Config::default());
+
+        let result = validator
+            .validate_stm32_deployment(&model, &optimizer)
+            .unwrap();
+
+        // When build_ready is false the STM32 validator must emit a warning that
+        // guides users toward manual build configuration.
+        assert!(
+            !result.deployment_artifacts.build_ready,
+            "Prerequisite: build_ready must be false for this warning to be emitted"
+        );
+        let has_build_config_warning = result
+            .warnings
+            .iter()
+            .any(|w| w.to_lowercase().contains("build") || w.to_lowercase().contains("manual"));
+        assert!(
+            has_build_config_warning,
+            "STM32 validator must include a warning about manual build configuration when \
+             build_ready is false; got warnings: {:?}",
+            result.warnings
+        );
     }
 }
