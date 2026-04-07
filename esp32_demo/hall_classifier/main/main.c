@@ -5,25 +5,20 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "driver/adc.h"
-#include "esp_adc_cal.h"
 #include "esp_timer.h"
 #include "blitzed_inference.h"
 #include "blitzed_model_weights.h"
 
 static const char *TAG = "blitzed";
 
-// Hall sensor on ESP32 uses ADC1 channels 0 and 3 internally
-// The hall_sensor_read() API abstracts this
-
 /**
- * Read the built-in hall effect sensor
- * Returns raw ADC value (typically -500 to +500)
- * Positive values indicate south pole nearby, negative indicates north pole
+ * Read the built-in hall effect sensor via ADC1.
+ * The ESP32 hall sensor is wired to ADC1 channels 0 and 3.
+ * We read channel 0 as a proxy — values shift when a magnet is nearby.
+ * Returns raw ADC value (0-4095 at 12-bit, ~1800-2200 baseline, shifts with magnetic field).
  */
 static int read_hall_sensor(void) {
-    // ESP-IDF hall sensor API (deprecated in v5.0+, but still functional)
-    // For production code on newer ESP-IDF, you'd use esp_adc APIs directly
-    return hall_sensor_read();
+    return adc1_get_raw(ADC1_CHANNEL_0);
 }
 
 /**
@@ -68,9 +63,9 @@ void app_main(void) {
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
     ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
 
-    // Initialize ADC for hall sensor
-    // Note: hall_sensor_read() internally configures ADC1 channels 0 and 3
+    // Initialize ADC1 for hall sensor (channel 0, 12-bit, no attenuation)
     adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_0);
 
     // Initialize inference engine
     if (blitzed_model_init() != 0) {
