@@ -42,7 +42,10 @@ pub use benchmarking::suite::BenchmarkSuite;
 pub use config::Config;
 pub use deployment::{DeploymentValidationConfig, HardwareDeploymentValidator};
 pub use error::{BlitzedError, Result};
-pub use model::{Model, ModelFormat, ModelInfo};
+pub use model::{
+    ExtractedLayerWeights, ExtractedWeights, LayerType, Model, ModelFormat, ModelInfo,
+    QuantizedLayerWeights, QuantizedModelWeights,
+};
 pub use optimization::{OptimizationConfig, Optimizer};
 pub use simulation::{SimulationConfig, SimulationFramework, SimulationResult};
 pub use validation::{CrossFormatValidator, ValidationConfig};

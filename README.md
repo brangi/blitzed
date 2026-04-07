@@ -7,354 +7,160 @@
 [![Build Status](https://github.com/brangi/blitzed/workflows/CI/badge.svg)](https://github.com/brangi/blitzed/actions)
 [![codecov](https://codecov.io/gh/brangi/blitzed/branch/main/graph/badge.svg)](https://codecov.io/gh/brangi/blitzed)
 
-**Ultra-fast edge AI optimization framework for deploying neural networks on microcontrollers.**
+**Train a model. Quantize to INT8. Generate C code. Flash to ESP32. Done.**
 
 </div>
 
 ---
 
-## Performance First
+Blitzed takes trained neural networks, quantizes them to INT8, and generates complete ESP-IDF projects that run real inference on ESP32 microcontrollers. No TensorFlow Lite, no runtime interpreters — just C code with embedded weights.
 
-Blitzed delivers **measurably superior performance** on resource-constrained microcontrollers:
+## Measured Hardware Results
 
-| Framework | Inference Time | Performance Gain |
-|-----------|---------------|-----------------|
-| **Blitzed** | **7.0 μs** | **Baseline** |
-| TensorFlow Lite | 71.7 μs | 10.2x slower |
+Tested on ESP32-WROOM-32 (240MHz, 512KB SRAM) with ESP-IDF v5.3:
 
-*Benchmarked on ESP32-D0WDQ6 with identical neural network models*
+| Demo | Sensor | Inference | Throughput | Model Size | Heap Used |
+|------|--------|-----------|------------|------------|-----------|
+| Hall classifier | Built-in hall effect | **17 us** | 58,823/sec | 140 bytes | 448 bytes |
+| Touch gesture | Built-in capacitive touch | **157 us** | 6,369/sec | 948 bytes | ~1 KB |
 
-## Key Features
+These are real numbers from a real ESP32, not estimates.
 
-- **Ultra-fast inference**: Sub-10 microsecond neural network execution
-- **Advanced optimization**: INT8/INT4/binary quantization techniques  
-- **Multi-platform**: ESP32, STM32, Arduino, Raspberry Pi deployment
-- **Python API**: High-level interface for rapid prototyping
-- **Rust core**: Zero-cost abstractions and memory safety
-- **Code generation**: Automatic C/C++ deployment code generation
-- **Built-in profiling**: Real-time memory and performance analysis
+## ESP32 Demos
 
-## Supported Platforms
+### Touch Gesture Recognition (verified on hardware)
 
-| Target | Status | Testing Status | Deployment |
-|--------|--------|---------------|------------|
-| **ESP32** | Verified | Tested on ESP32-D0WDQ6 | PlatformIO/ESP-IDF |
-| **STM32** | In Development | Untested | STM32CubeIDE |  
-| **Arduino** | In Development | Untested | Arduino IDE |
-| **Raspberry Pi** | In Development | Untested | Native Linux |
+Classifies 5 gesture types from temporal patterns across 4 capacitive touch pins. This demo genuinely requires ML — timing patterns, spatial order, and per-person variation create a feature space that can't be replicated with if/else rules.
 
-## Prerequisites
-
-- **Rust 1.70+**
-- **Python 3.8+** (for Python bindings)
-- **ESP-IDF** or **PlatformIO** (for ESP32 deployment)
-
-## Quick Start
-
-### 1. Installation
+- **Gestures**: swipe right, swipe left, single tap, double tap, long press
+- **Architecture**: Dense(20, 32) + ReLU + Dense(32, 5) — 837 parameters
+- **Accuracy**: 94.5% INT8 quantized (96.0% float)
+- **Touch pins**: GPIO 4, 12, 14, 27 (built-in capacitive, no external hardware)
+- **Feature extraction**: 20 temporal/spatial features from 1.5s window at 50Hz
+- **Includes data collection mode** for capturing real gesture training data
 
 ```bash
-# Clone repository
-git clone https://github.com/brangi/blitzed.git
-cd blitzed
+# Train the model (NumPy only, no GPU)
+python tools/train_touch_gesture_classifier.py
 
-# Build Rust core
-cargo build --release
-
-# Run tests to verify installation
-cargo test --workspace
+# Build and flash
+source ~/esp/esp-idf-v5.3/export.sh
+cd esp32_demo/touch_gesture
+idf.py build
+idf.py -p /dev/cu.usbserial-0001 flash monitor
 ```
 
-**Python bindings (experimental):**
-```bash
-# Install Python bindings (development stage)
-cd blitzed-py
-pip install maturin
-maturin develop --release
-```
+### Hall Sensor Classifier (verified on hardware)
 
-*Note: Python bindings are under active development and may have limited functionality.*
+Classifies magnetic field readings from the ESP32's built-in hall effect sensor.
 
-### 2. Python API Usage
-
-```python
-import blitzed
-
-# Initialize the library
-blitzed.init()
-
-# Check library version
-print(f"Blitzed version: {blitzed.VERSION}")
-
-# List supported targets
-targets = blitzed.list_targets()
-print(f"Supported targets: {targets}")
-```
-
-*Note: The Python API is under active development. More functionality will be added as the framework matures.*
-
-### 3. Rust API Usage
-
-```rust
-use blitzed_core::{Config, Model, Optimizer};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize Blitzed
-    blitzed_core::init()?;
-    
-    // Load model
-    let model = Model::load("path/to/model.onnx")?;
-    
-    // Create ESP32-optimized configuration
-    let config = Config::preset("esp32")?;
-    
-    // Optimize model
-    let optimizer = Optimizer::new(config);
-    let result = optimizer.optimize(&model)?;
-    
-    println!("Compression ratio: {:.2}x", result.compression_ratio);
-    println!("Estimated speedup: {:.2}x", result.estimated_speedup);
-    
-    Ok(())
-}
-```
-
-## ESP32 Deployment
-
-### Hardware Setup
-
-1. **Connect ESP32** to your computer via USB
-2. **Install PlatformIO** (recommended) or ESP-IDF
-3. **Identify serial port** (usually `/dev/cu.usbserial-*` on macOS)
-
-### Step-by-Step Deployment
+- **Architecture**: Dense(1, 16) + ReLU + Dense(16, 3) — 83 parameters
+- **Inference**: 17us mean, 113us max
+- **No external hardware needed**
 
 ```bash
-# 1. Generate deployment code
-python -c "
-import blitzed
-result = blitzed.generate_deployment_code(
-    'optimized_model.blz',
-    'esp32_project/',
-    'esp32'
-)
-print('Generated:', result['implementation_file'])
-"
-
-# 2. Create PlatformIO project
-cd esp32_project
-pio project init --board esp32dev
-
-# 3. Flash to ESP32
-pio run --target upload --upload-port /dev/cu.usbserial-0001
-
-# 4. Monitor output
-pio device monitor --port /dev/cu.usbserial-0001
+cd esp32_demo/hall_classifier
+idf.py build
+idf.py -p /dev/cu.usbserial-0001 flash monitor
 ```
 
-### Example ESP32 Output
-```
-I (298) BLITZED: Model loaded: 15.2KB
-I (302) BLITZED: Inference time: 7.0μs
-I (306) BLITZED: Memory usage: 89.3KB
-I (310) BLITZED: Prediction: [0.95, 0.03, 0.02]
-```
+### Vibration Classifier (needs MPU6050)
 
-## Python API Reference
+Classifies vibration patterns from an MPU6050 accelerometer: normal, imbalance, misalignment, bearing fault.
 
-### Core Functions
+- **Architecture**: Dense(3, 32) + ReLU + Dense(32, 4) — 164 parameters, 368 bytes
+- **Wiring**: MPU6050 I2C on GPIO21 (SDA) / GPIO22 (SCL)
+- **Not yet tested on hardware** — needs MPU6050 sensor
 
-#### `blitzed.init()`
-Initialize the Blitzed library. Call before using other functions.
+### Predictive Maintenance (needs MPU6050)
 
-#### `blitzed.load_model(path: str) -> dict`
-Load and analyze a model file. Returns model information including size, shapes, and memory estimates.
+Multi-sensor fusion: temperature + accelerometer data for equipment health classification.
 
-**Parameters:**
-- `path`: Path to model file (ONNX, TensorFlow, PyTorch)
+- **Architecture**: Dense(4, 32) + ReLU + Dense(32, 4) — 292 parameters, 400 bytes
+- **Not yet tested on hardware**
 
-**Returns:**
-```python
-{
-    "format": "ONNX",
-    "model_size_bytes": 1048576,
-    "parameter_count": 25000,
-    "operations_count": 150,
-    "input_shapes": [[1, 3, 224, 224]],
-    "output_shapes": [[1, 1000]],
-    "estimated_memory_usage": 2097152
-}
-```
+### Temperature Anomaly (not yet flashed)
 
-#### `blitzed.optimize_model(input_path: str, output_path: str, config: dict) -> dict`
-Apply full optimization pipeline to a model.
+Classifies ESP32 internal die temperature into normal/cold/hot/critical ranges. Note: the internal sensor measures chip temperature, not ambient.
 
-**Configuration options:**
-```python
-config = {
-    "target": "esp32",                    # Target platform
-    "quantization_type": "int8",          # int8, int4, binary, mixed
-    "calibration_dataset_size": 100,      # Samples for calibration
-    "symmetric": True,                    # Symmetric quantization
-    "per_channel": True,                  # Per-channel quantization  
-    "accuracy_threshold": 5.0,            # Max accuracy loss (%)
-    "skip_sensitive_layers": True         # Preserve critical layers
-}
+- **Architecture**: Dense(1, 16) + ReLU + Dense(16, 4) — 84 parameters, 160 bytes
+
+## How It Works
+
+1. **Train** a tiny classifier with NumPy (no PyTorch/TF needed)
+2. **Quantize** weights to INT8 with calibrated output scales
+3. **Export** to a C header with weights baked in as const arrays
+4. **Build** a standalone ESP-IDF project with the inference kernel
+5. **Flash** to ESP32 and run real-time inference
+
+The training scripts in `tools/` handle steps 1-3. Each produces a `blitzed_model_weights.h` that plugs directly into the ESP-IDF project.
+
+## Building
+
+```bash
+# Rust core
+cargo build -p blitzed-core --no-default-features --features "quantization,hardware-targets"
+
+# Run tests (413 passing)
+cargo test -p blitzed-core --no-default-features --features "quantization,hardware-targets"
+
+# ESP32 demos (requires ESP-IDF v5.x)
+source ~/esp/esp-idf-v5.3/export.sh
+cd esp32_demo/hall_classifier
+idf.py build
+idf.py -p /dev/cu.usbserial-0001 flash monitor
 ```
 
-#### `blitzed.profile_model(model_path: str, config: dict) -> dict`
-Profile model performance characteristics.
-
-#### `blitzed.generate_deployment_code(model_path: str, output_dir: str, target: str) -> dict`
-Generate optimized C/C++ code for target platform.
-
-#### `blitzed.list_targets() -> List[str]`
-Get list of supported deployment targets.
-
-### Quantization Functions
-
-#### `blitzed.quantize_model(input_path: str, output_path: str, config: dict) -> str`
-Apply quantization-only optimization.
-
-#### `blitzed.estimate_quantization_impact(model_path: str, config: dict) -> dict`
-Estimate quantization effects without applying changes.
+> `onnx` and `pytorch` default features require native libraries that may not be available on all platforms. Use `--no-default-features` for reliable builds.
 
 ## Project Structure
 
 ```
-blitzed/
-├── blitzed-core/          # Rust optimization engine
-├── blitzed-py/           # Python bindings (PyO3)
-├── python/               # Python package structure  
-├── tests/                # Rust tests
-└── README.md
+blitzed-core/          Rust optimization engine
+  src/
+    optimization/      Quantization, pruning, distillation
+    targets/           Hardware constraint definitions
+    converters/        Model format loading (ONNX, PyTorch, TF)
+    codegen/           C code generation for embedded targets
+    model.rs           Weight extraction and quantization
+    tensor_ops.rs      Matrix math, convolutions, activations
+esp32_demo/
+    hall_classifier/   Built-in hall sensor, 3 classes (verified)
+    touch_gesture/     Capacitive touch, 5 gestures (verified)
+    temp_anomaly/      Internal temp sensor, 4 classes
+    vibration_classifier/  MPU6050 accelerometer, 4 classes
+    predictive_maintenance/  Multi-sensor fusion, 4 classes
+tools/                 NumPy training scripts (one per demo)
+python/                Python package (CLI, converters)
+blitzed-py/            PyO3 Rust-Python bindings
 ```
 
-## Performance Benchmarks
+## What's Not Done
 
-### Verified Performance Results (ESP32-D0WDQ6)
+- STM32, Arduino, Raspberry Pi codegen (hardware constraints defined, no code generation yet)
+- Generic C codegen produces structural templates, not runnable inference
+- Deployment artifact generators output structural descriptions (`build_ready: false`)
+- Vibration and predictive maintenance demos need hardware testing with MPU6050
+- No Conv1D/LSTM/temporal layers in inference kernel yet (dense layers only)
 
-Based on actual hardware testing with identical neural network models:
+## INT8 Quantization
 
-| Framework | Inference Time | Performance Improvement |
-|-----------|---------------|------------------------|
-| **Blitzed** | **7.0 μs** | **Baseline** |
-| TensorFlow Lite | 71.7 μs | 10.2x slower |
+All models use calibrated post-training quantization:
+- Weights quantized to INT8 with per-layer symmetric scales
+- INT32 accumulators prevent overflow during inference
+- Output scales calibrated from training data activation statistics (not naive scale multiplication)
+- Input normalization to [0, 1] before quantization (critical for training stability)
 
-### Optimization Capabilities
+## Requirements
 
-The framework provides multiple optimization techniques:
-- **INT8 Quantization**: Reduces model size and improves inference speed
-- **INT4 Quantization**: Further size reduction for extreme resource constraints
-- **Pruning**: Removes redundant network connections
-- **Knowledge Distillation**: Creates smaller models that maintain accuracy
-
-*Specific compression ratios vary by model architecture and require individual testing.*
-
-## Use Cases
-
-### Industrial IoT
-- **Predictive maintenance**: Vibration analysis, temperature monitoring
-- **Quality control**: Real-time defect detection 
-- **Process optimization**: Sensor fusion and control systems
-
-### Smart Agriculture  
-- **Crop monitoring**: Disease detection, growth analysis
-- **Environmental control**: Climate optimization, irrigation control
-- **Livestock tracking**: Health monitoring, behavior analysis
-
-### Edge Computing
-- **Autonomous vehicles**: Object detection, path planning
-- **Security systems**: Intrusion detection, facial recognition  
-- **Wearables**: Health monitoring, gesture recognition
-
-## Examples
-
-### Basic Quantization
-```python
-# Quantize model to INT8 for ESP32
-config = {
-    "quantization_type": "int8",
-    "target": "esp32"
-}
-
-blitzed.quantize_model(
-    "model.onnx", 
-    "quantized_model.blz", 
-    config
-)
-```
-
-### Performance Profiling
-```python
-# Profile model before optimization
-metrics = blitzed.profile_model("model.onnx", {"target": "esp32"})
-print(f"Estimated inference time: {metrics['estimated_inference_time_ms']}ms")
-print(f"Memory usage: {metrics['estimated_memory_usage']} bytes")
-```
-
-### Multi-Platform Deployment
-```python
-# Generate code for multiple targets
-targets = blitzed.list_targets()
-for target in ["esp32", "stm32", "arduino"]:
-    blitzed.generate_deployment_code(
-        "optimized_model.blz",
-        f"deployment_{target}/", 
-        target
-    )
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**"Model loading failed"**
-- Verify model format is supported (ONNX, TensorFlow, PyTorch)
-- Check file path and permissions
-- Ensure model is not corrupted
-
-**"ESP32 deployment fails"**
-- Verify ESP32 is connected and recognized by system
-- Check serial port permissions (`sudo usermod -a -G dialout $USER`)
-- Ensure sufficient flash memory (model + firmware < 4MB)
-
-**"Quantization accuracy loss too high"**
-- Increase calibration dataset size
-- Try mixed precision quantization
-- Enable `skip_sensitive_layers` option
-
-### Development Setup
-```bash
-# Clone and setup development environment
-git clone https://github.com/brangi/blitzed.git
-cd blitzed
-
-# Install development dependencies
-cargo install cargo-watch
-pip install maturin pytest
-
-# Run tests
-cargo test --workspace
-cd blitzed-py && python -m pytest
-```
-
-### Testing
-```bash
-# Run all tests
-make test
-
-# Test specific components  
-cargo test optimization
-python -m pytest tests/test_quantization.py
-```
+- **Rust 1.70+** for the core library
+- **Python 3.8+** with NumPy for training scripts
+- **ESP-IDF v5.x** for building and flashing ESP32 demos
+- **ESP32-WROOM-32** dev board (tested with 30-pin variant)
 
 ## License
 
-This project is licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
+Apache License 2.0 or MIT License, at your option.
 
 ## Author
 

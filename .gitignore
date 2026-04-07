@@ -1,3 +1,13 @@
+# Claude
+CLAUDE.md
+.claude/
+
+# Environment
+.env
+
+# External symlinks
+plugins
+
 # macOS
 .DS_Store
 
@@ -57,3 +67,6 @@ sensor_package_order.md
 # Deployment scripts and outputs
 deploy_real_nn.sh
 esp32-deployment/
+esp32_demo/**/build/
+esp32_demo/**/.cache/
+esp32_demo/**/sdkconfig

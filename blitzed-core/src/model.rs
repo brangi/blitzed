@@ -100,6 +100,62 @@ pub enum ModelData {
     Raw(Vec<u8>),
 }
 
+// ---------------------------------------------------------------------------
+// Real weight extraction types for actual model deployment
+// ---------------------------------------------------------------------------
+
+/// Layer type for weight extraction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LayerType {
+    Dense,
+    Conv2d,
+}
+
+/// Extracted float32 weights from a trained model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedWeights {
+    pub layers: Vec<ExtractedLayerWeights>,
+}
+
+/// Weights for a single layer (float32, pre-quantization)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedLayerWeights {
+    pub name: String,
+    pub layer_type: LayerType,
+    pub input_size: usize,
+    pub output_size: usize,
+    pub weights: Vec<f32>,
+    pub bias: Vec<f32>,
+}
+
+/// Fully quantized model weights ready for C code generation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuantizedModelWeights {
+    pub layers: Vec<QuantizedLayerWeights>,
+    pub input_scale: f32,
+    pub input_zero_point: i32,
+    pub input_min: f32,
+    pub input_max: f32,
+    pub num_classes: usize,
+    pub class_labels: Vec<String>,
+}
+
+/// INT8 quantized weights for a single layer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuantizedLayerWeights {
+    pub name: String,
+    pub layer_type: LayerType,
+    pub input_size: usize,
+    pub output_size: usize,
+    pub weights_int8: Vec<i8>,
+    pub bias_int32: Vec<i32>,
+    pub weight_scale: f32,
+    pub weight_zero_point: i32,
+    pub output_scale: f32,
+    pub output_zero_point: i32,
+    pub has_relu: bool,
+}
+
 /// Result of ONNX model analysis
 #[cfg(feature = "onnx")]
 struct ModelAnalysis {
@@ -437,6 +493,26 @@ impl Model {
         Ok(())
     }
 
+    /// Load extracted weights from a JSON file exported by a training script
+    pub fn load_extracted_weights<P: AsRef<Path>>(path: P) -> Result<ExtractedWeights> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        let weights: ExtractedWeights = serde_json::from_str(&content)?;
+        log::info!("Loaded extracted weights: {} layers", weights.layers.len());
+        Ok(weights)
+    }
+
+    /// Load quantized weights from a JSON file
+    pub fn load_quantized_weights<P: AsRef<Path>>(path: P) -> Result<QuantizedModelWeights> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        let weights: QuantizedModelWeights = serde_json::from_str(&content)?;
+        log::info!(
+            "Loaded quantized weights: {} layers, {} classes",
+            weights.layers.len(),
+            weights.num_classes
+        );
+        Ok(weights)
+    }
+
     /// Create a test model for unit testing and integration testing
     pub fn create_test_model() -> Result<Self> {
         let info = ModelInfo {
@@ -487,6 +563,108 @@ impl Model {
             data: ModelData::Raw(vec![0u8; 1000]), // Mock model data
         })
     }
+}
+
+/// Quantize extracted float32 weights to INT8 for embedded deployment.
+///
+/// This performs real post-training quantization:
+/// - Per-layer asymmetric quantization for weights
+/// - INT32 bias quantization using (input_scale * weight_scale)
+/// - Scale/zero-point computation from actual min/max values
+pub fn quantize_extracted_weights(
+    extracted: &ExtractedWeights,
+    input_scale: f32,
+    input_zero_point: i32,
+    input_min: f32,
+    input_max: f32,
+    class_labels: Vec<String>,
+) -> Result<QuantizedModelWeights> {
+    let mut quantized_layers = Vec::new();
+    let mut prev_output_scale = input_scale;
+
+    for (i, layer) in extracted.layers.iter().enumerate() {
+        // Compute weight min/max
+        let w_min = layer.weights.iter().cloned().fold(f32::INFINITY, f32::min);
+        let w_max = layer
+            .weights
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        // Compute scale and zero_point for weights (asymmetric)
+        let w_range = w_max - w_min;
+        let weight_scale = if w_range > 1e-10 {
+            w_range / 255.0
+        } else {
+            1e-10
+        };
+        let weight_zero_point = (-128.0 - w_min / weight_scale).round() as i32;
+        let weight_zero_point = weight_zero_point.clamp(-128, 127);
+
+        // Quantize weights to INT8
+        let weights_int8: Vec<i8> = layer
+            .weights
+            .iter()
+            .map(|&w| {
+                let q = (w / weight_scale).round() as i32 + weight_zero_point;
+                q.clamp(-128, 127) as i8
+            })
+            .collect();
+
+        // Quantize biases to INT32 using (prev_output_scale * weight_scale) as bias scale
+        let bias_scale = prev_output_scale * weight_scale;
+        let bias_int32: Vec<i32> = layer
+            .bias
+            .iter()
+            .map(|&b| {
+                if bias_scale > 1e-15 {
+                    (b / bias_scale).round() as i32
+                } else {
+                    0
+                }
+            })
+            .collect();
+
+        // Compute output scale from running a representative range through the layer
+        // For simplicity: output_scale = weight_scale * prev_output_scale * output_range_factor
+        // We estimate output range by computing the max possible accumulator value
+        let max_acc: f32 =
+            layer.weights.iter().map(|w| w.abs()).sum::<f32>() / layer.output_size as f32;
+        let output_range =
+            max_acc * 2.0 + layer.bias.iter().map(|b| b.abs()).fold(0.0f32, f32::max);
+        let output_scale = if output_range > 1e-10 {
+            output_range / 255.0
+        } else {
+            1e-10
+        };
+
+        let is_last = i == extracted.layers.len() - 1;
+        quantized_layers.push(QuantizedLayerWeights {
+            name: layer.name.clone(),
+            layer_type: layer.layer_type,
+            input_size: layer.input_size,
+            output_size: layer.output_size,
+            weights_int8,
+            bias_int32,
+            weight_scale,
+            weight_zero_point,
+            output_scale,
+            output_zero_point: 0,
+            has_relu: !is_last, // ReLU on all hidden layers, not on output
+        });
+
+        prev_output_scale = output_scale;
+    }
+
+    Ok(QuantizedModelWeights {
+        layers: quantized_layers,
+        input_scale,
+        input_zero_point,
+        input_min,
+        input_max,
+        num_classes: class_labels.len(),
+        class_labels,
+    })
 }
 
 #[cfg(test)]
@@ -734,6 +912,71 @@ mod tests {
     }
 
     #[test]
+    fn test_quantize_extracted_weights_basic() {
+        let extracted = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "layer1".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 1,
+                    output_size: 4,
+                    weights: vec![0.5, -0.3, 0.8, -0.1],
+                    bias: vec![0.01, -0.02, 0.03, 0.0],
+                },
+                ExtractedLayerWeights {
+                    name: "layer2".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 4,
+                    output_size: 2,
+                    weights: vec![0.2, -0.4, 0.6, 0.1, -0.3, 0.5, 0.7, -0.2],
+                    bias: vec![0.05, -0.05],
+                },
+            ],
+        };
+
+        let result = quantize_extracted_weights(
+            &extracted,
+            0.003921568, // 1/255
+            0,
+            -200.0,
+            200.0,
+            vec!["a".to_string(), "b".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        assert_eq!(qw.layers.len(), 2);
+        assert_eq!(qw.layers[0].weights_int8.len(), 4);
+        assert_eq!(qw.layers[0].bias_int32.len(), 4);
+        assert_eq!(qw.layers[1].weights_int8.len(), 8);
+        assert_eq!(qw.layers[1].bias_int32.len(), 2);
+        assert!(qw.layers[0].has_relu); // hidden layer
+        assert!(!qw.layers[1].has_relu); // output layer
+        assert_eq!(qw.num_classes, 2);
+        assert!(qw.layers[0].weight_scale > 0.0);
+    }
+
+    #[test]
+    fn test_extracted_weights_serialization() {
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "fc1".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 3,
+                weights: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                bias: vec![0.1, 0.2, 0.3],
+            }],
+        };
+
+        let json = serde_json::to_string(&extracted).unwrap();
+        let deserialized: ExtractedWeights = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.layers.len(), 1);
+        assert_eq!(deserialized.layers[0].name, "fc1");
+        assert_eq!(deserialized.layers[0].weights.len(), 6);
+    }
+
+    #[test]
     fn test_check_memory_constraints_at_boundary() {
         let info = ModelInfo {
             format: ModelFormat::Onnx,
@@ -760,5 +1003,661 @@ mod tests {
 
         // Test just above boundary - should pass
         assert!(model.check_memory_constraints(usage + 1).is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // LayerType enum tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_layer_type_equality() {
+        assert_eq!(LayerType::Dense, LayerType::Dense);
+        assert_eq!(LayerType::Conv2d, LayerType::Conv2d);
+        assert_ne!(LayerType::Dense, LayerType::Conv2d);
+    }
+
+    #[test]
+    fn test_layer_type_copy() {
+        let a = LayerType::Dense;
+        let b = a; // Copy trait
+        assert_eq!(a, b);
+
+        let c = LayerType::Conv2d;
+        let d = c;
+        assert_eq!(c, d);
+    }
+
+    #[test]
+    fn test_layer_type_debug() {
+        assert_eq!(format!("{:?}", LayerType::Dense), "Dense");
+        assert_eq!(format!("{:?}", LayerType::Conv2d), "Conv2d");
+    }
+
+    #[test]
+    fn test_layer_type_serialization() {
+        let dense_json = serde_json::to_string(&LayerType::Dense).unwrap();
+        let conv_json = serde_json::to_string(&LayerType::Conv2d).unwrap();
+
+        assert_eq!(dense_json, "\"Dense\"");
+        assert_eq!(conv_json, "\"Conv2d\"");
+
+        let dense_rt: LayerType = serde_json::from_str(&dense_json).unwrap();
+        let conv_rt: LayerType = serde_json::from_str(&conv_json).unwrap();
+        assert_eq!(dense_rt, LayerType::Dense);
+        assert_eq!(conv_rt, LayerType::Conv2d);
+    }
+
+    // -------------------------------------------------------------------------
+    // quantize_extracted_weights edge cases
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_quantize_all_zero_weights() {
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "zero_layer".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 2,
+                weights: vec![0.0, 0.0, 0.0, 0.0],
+                bias: vec![0.0, 0.0],
+            }],
+        };
+
+        let result = quantize_extracted_weights(
+            &extracted,
+            0.003921568,
+            0,
+            0.0,
+            1.0,
+            vec!["a".to_string(), "b".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        assert_eq!(qw.layers.len(), 1);
+        // All-zero weights: w_range = 0 so scale falls back to 1e-10.
+        // weight_zero_point = round(-128 - 0/1e-10) = -128.
+        // Each quantized value = round(0/1e-10) + (-128) = -128, clamped to i8::MIN.
+        assert!(qw.layers[0].weights_int8.iter().all(|&v| v == i8::MIN));
+        // All-zero biases should produce all-zero INT32 values (bias_scale > 0)
+        assert!(qw.layers[0].bias_int32.iter().all(|&v| v == 0));
+        // Scale should be the fallback epsilon value (strictly positive)
+        assert!(qw.layers[0].weight_scale > 0.0);
+        // Only layer, so has_relu must be false (last layer)
+        assert!(!qw.layers[0].has_relu);
+    }
+
+    #[test]
+    fn test_quantize_single_element_weights() {
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "tiny".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 1,
+                output_size: 1,
+                weights: vec![0.42],
+                bias: vec![0.01],
+            }],
+        };
+
+        let result =
+            quantize_extracted_weights(&extracted, 0.1, 0, -1.0, 1.0, vec!["class0".to_string()]);
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        assert_eq!(qw.layers[0].weights_int8.len(), 1);
+        assert_eq!(qw.layers[0].bias_int32.len(), 1);
+        assert!(!qw.layers[0].has_relu); // single layer is always last
+        assert_eq!(qw.num_classes, 1);
+    }
+
+    #[test]
+    fn test_quantize_negative_only_weights() {
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "neg_layer".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 3,
+                weights: vec![-0.1, -0.5, -0.9, -0.3, -0.7, -0.2],
+                bias: vec![-0.1, -0.2, -0.3],
+            }],
+        };
+
+        let result = quantize_extracted_weights(
+            &extracted,
+            0.1,
+            0,
+            -1.0,
+            0.0,
+            vec!["x".to_string(), "y".to_string(), "z".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        let layer = &qw.layers[0];
+        assert_eq!(layer.weights_int8.len(), 6);
+        // i8 type guarantees [-128, 127]; verify count and that scale is positive
+        assert!(layer.weight_scale > 0.0);
+    }
+
+    #[test]
+    fn test_quantize_very_large_weights_clamping() {
+        // Weights far outside the typical [-1, 1] range; the clamping logic
+        // must keep all INT8 values within [-128, 127].
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "big_layer".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 2,
+                weights: vec![1e6, -1e6, 5e5, -5e5],
+                bias: vec![1e5, -1e5],
+            }],
+        };
+
+        let result = quantize_extracted_weights(
+            &extracted,
+            0.003921568,
+            0,
+            -1e6,
+            1e6,
+            vec!["pos".to_string(), "neg".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        let layer = &qw.layers[0];
+        // Every element is already an i8 so the range is guaranteed by the type;
+        // what we actually want to confirm is that the quantization ran successfully
+        // and produced the expected number of outputs.
+        assert_eq!(layer.weights_int8.len(), 4);
+        assert!(layer.weight_scale > 0.0);
+    }
+
+    #[test]
+    fn test_quantize_multi_layer_model() {
+        // Three layers: two hidden + one output.
+        let extracted = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "fc1".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 4,
+                    output_size: 8,
+                    weights: (0..32).map(|i| i as f32 * 0.01 - 0.16).collect(),
+                    bias: vec![0.01; 8],
+                },
+                ExtractedLayerWeights {
+                    name: "fc2".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 8,
+                    output_size: 4,
+                    weights: (0..32).map(|i| -(i as f32) * 0.01).collect(),
+                    bias: vec![-0.01; 4],
+                },
+                ExtractedLayerWeights {
+                    name: "out".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 4,
+                    output_size: 3,
+                    weights: vec![
+                        0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4, 0.5, -0.5, 0.6, -0.6,
+                    ],
+                    bias: vec![0.0, 0.0, 0.0],
+                },
+            ],
+        };
+
+        let result = quantize_extracted_weights(
+            &extracted,
+            0.003921568,
+            0,
+            -1.0,
+            1.0,
+            vec!["cat".to_string(), "dog".to_string(), "bird".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        assert_eq!(qw.layers.len(), 3);
+        assert_eq!(qw.num_classes, 3);
+
+        // Hidden layers have ReLU; output layer does not
+        assert!(qw.layers[0].has_relu, "fc1 should have relu");
+        assert!(qw.layers[1].has_relu, "fc2 should have relu");
+        assert!(!qw.layers[2].has_relu, "output layer must not have relu");
+
+        // Weight sizes must match
+        assert_eq!(qw.layers[0].weights_int8.len(), 32);
+        assert_eq!(qw.layers[1].weights_int8.len(), 32);
+        assert_eq!(qw.layers[2].weights_int8.len(), 12);
+
+        // Bias sizes must match
+        assert_eq!(qw.layers[0].bias_int32.len(), 8);
+        assert_eq!(qw.layers[1].bias_int32.len(), 4);
+        assert_eq!(qw.layers[2].bias_int32.len(), 3);
+
+        // All scales must be positive
+        for layer in &qw.layers {
+            assert!(layer.weight_scale > 0.0, "weight_scale must be positive");
+            assert!(layer.output_scale > 0.0, "output_scale must be positive");
+        }
+    }
+
+    #[test]
+    fn test_quantize_bias_int32_formula() {
+        // Verify bias_int32[i] = round(bias[i] / (input_scale * weight_scale)).
+        // Use two distinct weights so w_range > 0 and weight_scale is predictable.
+        let bias_value: f32 = 0.5;
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "bias_test".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 1,
+                // weights span [0.0, 1.0] → w_range = 1.0 → weight_scale = 1.0/255
+                weights: vec![0.0, 1.0],
+                bias: vec![bias_value],
+            }],
+        };
+
+        let input_scale: f32 = 0.003921568; // ≈ 1/255
+        let result = quantize_extracted_weights(
+            &extracted,
+            input_scale,
+            0,
+            0.0,
+            1.0,
+            vec!["out".to_string()],
+        );
+
+        assert!(result.is_ok());
+        let qw = result.unwrap();
+        let layer = &qw.layers[0];
+
+        let weight_scale = layer.weight_scale;
+        let bias_scale = input_scale * weight_scale;
+        let expected_bias = (bias_value / bias_scale).round() as i32;
+        assert_eq!(
+            layer.bias_int32[0], expected_bias,
+            "bias_int32 should equal round(bias / (input_scale * weight_scale))"
+        );
+    }
+
+    #[test]
+    fn test_quantize_output_scale_reasonable() {
+        // output_scale must be strictly positive and finite for any non-trivial input.
+        let extracted = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "h1".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 3,
+                    output_size: 4,
+                    weights: vec![
+                        0.1, -0.2, 0.3, 0.4, -0.5, 0.6, 0.7, -0.8, 0.9, 1.0, -1.1, 1.2,
+                    ],
+                    bias: vec![0.01, 0.02, 0.03, 0.04],
+                },
+                ExtractedLayerWeights {
+                    name: "out".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 4,
+                    output_size: 2,
+                    weights: vec![0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5],
+                    bias: vec![0.0, 0.0],
+                },
+            ],
+        };
+
+        let qw = quantize_extracted_weights(
+            &extracted,
+            0.003921568,
+            0,
+            -1.0,
+            1.0,
+            vec!["yes".to_string(), "no".to_string()],
+        )
+        .unwrap();
+
+        for layer in &qw.layers {
+            assert!(
+                layer.output_scale > 0.0 && layer.output_scale.is_finite(),
+                "output_scale must be positive and finite, got {}",
+                layer.output_scale
+            );
+        }
+    }
+
+    #[test]
+    fn test_quantize_output_zero_point_is_zero() {
+        // The current implementation always sets output_zero_point to 0.
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "layer".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 2,
+                weights: vec![0.5, -0.5, 0.3, -0.3],
+                bias: vec![0.1, -0.1],
+            }],
+        };
+
+        let qw = quantize_extracted_weights(
+            &extracted,
+            0.1,
+            0,
+            -1.0,
+            1.0,
+            vec!["a".to_string(), "b".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(qw.layers[0].output_zero_point, 0);
+    }
+
+    #[test]
+    fn test_quantize_has_relu_propagation_single_layer() {
+        // A model with exactly one layer: has_relu must be false.
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "only".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 1,
+                weights: vec![0.5, -0.5],
+                bias: vec![0.0],
+            }],
+        };
+
+        let qw =
+            quantize_extracted_weights(&extracted, 0.1, 0, -1.0, 1.0, vec!["result".to_string()])
+                .unwrap();
+
+        assert!(!qw.layers[0].has_relu);
+    }
+
+    #[test]
+    fn test_quantize_conv2d_layer_type_preserved() {
+        let extracted = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "conv".to_string(),
+                    layer_type: LayerType::Conv2d,
+                    input_size: 9,
+                    output_size: 4,
+                    weights: (0..36).map(|i| i as f32 * 0.01).collect(),
+                    bias: vec![0.0; 4],
+                },
+                ExtractedLayerWeights {
+                    name: "dense".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 4,
+                    output_size: 2,
+                    weights: vec![0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4],
+                    bias: vec![0.0, 0.0],
+                },
+            ],
+        };
+
+        let qw = quantize_extracted_weights(
+            &extracted,
+            0.003921568,
+            0,
+            0.0,
+            1.0,
+            vec!["x".to_string(), "y".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(qw.layers[0].layer_type, LayerType::Conv2d);
+        assert_eq!(qw.layers[1].layer_type, LayerType::Dense);
+    }
+
+    // -------------------------------------------------------------------------
+    // ExtractedWeights / QuantizedModelWeights round-trip serialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_extracted_weights_full_round_trip() {
+        let original = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "enc1".to_string(),
+                    layer_type: LayerType::Conv2d,
+                    input_size: 3,
+                    output_size: 8,
+                    weights: vec![0.1, -0.2, 0.3, -0.4, 0.5, -0.6],
+                    bias: vec![0.01, -0.01, 0.02, -0.02, 0.03, -0.03, 0.04, -0.04],
+                },
+                ExtractedLayerWeights {
+                    name: "out".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 8,
+                    output_size: 3,
+                    weights: (0..24).map(|i| i as f32 / 24.0).collect(),
+                    bias: vec![0.0; 3],
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: ExtractedWeights = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.layers.len(), original.layers.len());
+        for (orig, rest) in original.layers.iter().zip(restored.layers.iter()) {
+            assert_eq!(rest.name, orig.name);
+            assert_eq!(rest.layer_type, orig.layer_type);
+            assert_eq!(rest.input_size, orig.input_size);
+            assert_eq!(rest.output_size, orig.output_size);
+            assert_eq!(rest.weights.len(), orig.weights.len());
+            assert_eq!(rest.bias.len(), orig.bias.len());
+            for (a, b) in orig.weights.iter().zip(rest.weights.iter()) {
+                assert!((a - b).abs() < 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn test_quantized_model_weights_round_trip() {
+        let original = QuantizedModelWeights {
+            layers: vec![QuantizedLayerWeights {
+                name: "q_layer".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 3,
+                weights_int8: vec![10, -20, 30, -40, 50, -60],
+                bias_int32: vec![100, -200, 300],
+                weight_scale: 0.0078125,
+                weight_zero_point: -128,
+                output_scale: 0.015625,
+                output_zero_point: 0,
+                has_relu: true,
+            }],
+            input_scale: 0.003921568,
+            input_zero_point: 0,
+            input_min: -1.0,
+            input_max: 1.0,
+            num_classes: 3,
+            class_labels: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: QuantizedModelWeights = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.layers.len(), 1);
+        let orig_l = &original.layers[0];
+        let rest_l = &restored.layers[0];
+
+        assert_eq!(rest_l.name, orig_l.name);
+        assert_eq!(rest_l.layer_type, orig_l.layer_type);
+        assert_eq!(rest_l.input_size, orig_l.input_size);
+        assert_eq!(rest_l.output_size, orig_l.output_size);
+        assert_eq!(rest_l.weights_int8, orig_l.weights_int8);
+        assert_eq!(rest_l.bias_int32, orig_l.bias_int32);
+        assert!((rest_l.weight_scale - orig_l.weight_scale).abs() < 1e-9);
+        assert_eq!(rest_l.weight_zero_point, orig_l.weight_zero_point);
+        assert!((rest_l.output_scale - orig_l.output_scale).abs() < 1e-9);
+        assert_eq!(rest_l.output_zero_point, orig_l.output_zero_point);
+        assert_eq!(rest_l.has_relu, orig_l.has_relu);
+
+        assert!((restored.input_scale - original.input_scale).abs() < 1e-9);
+        assert_eq!(restored.input_zero_point, original.input_zero_point);
+        assert!((restored.input_min - original.input_min).abs() < 1e-9);
+        assert!((restored.input_max - original.input_max).abs() < 1e-9);
+        assert_eq!(restored.num_classes, original.num_classes);
+        assert_eq!(restored.class_labels, original.class_labels);
+    }
+
+    // -------------------------------------------------------------------------
+    // Model::load_extracted_weights and Model::load_quantized_weights
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_load_extracted_weights_valid_file() {
+        use std::io::Write;
+
+        let extracted = ExtractedWeights {
+            layers: vec![ExtractedLayerWeights {
+                name: "fc".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 3,
+                output_size: 2,
+                weights: vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+                bias: vec![0.01, 0.02],
+            }],
+        };
+
+        let json = serde_json::to_string(&extracted).unwrap();
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let loaded = Model::load_extracted_weights(tmp.path()).unwrap();
+        assert_eq!(loaded.layers.len(), 1);
+        assert_eq!(loaded.layers[0].name, "fc");
+        assert_eq!(loaded.layers[0].layer_type, LayerType::Dense);
+        assert_eq!(loaded.layers[0].input_size, 3);
+        assert_eq!(loaded.layers[0].output_size, 2);
+        assert_eq!(loaded.layers[0].weights.len(), 6);
+        assert_eq!(loaded.layers[0].bias.len(), 2);
+    }
+
+    #[test]
+    fn test_load_extracted_weights_invalid_json() {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"{ not valid json at all !!!").unwrap();
+        tmp.flush().unwrap();
+
+        let result = Model::load_extracted_weights(tmp.path());
+        assert!(result.is_err(), "invalid JSON should return an error");
+    }
+
+    #[test]
+    fn test_load_extracted_weights_missing_file() {
+        let result = Model::load_extracted_weights("/nonexistent/path/weights.json");
+        assert!(result.is_err(), "missing file should return an error");
+    }
+
+    #[test]
+    fn test_load_quantized_weights_valid_file() {
+        use std::io::Write;
+
+        let qw = QuantizedModelWeights {
+            layers: vec![QuantizedLayerWeights {
+                name: "q".to_string(),
+                layer_type: LayerType::Dense,
+                input_size: 2,
+                output_size: 2,
+                weights_int8: vec![10, -10, 20, -20],
+                bias_int32: vec![50, -50],
+                weight_scale: 0.01,
+                weight_zero_point: 0,
+                output_scale: 0.02,
+                output_zero_point: 0,
+                has_relu: false,
+            }],
+            input_scale: 0.1,
+            input_zero_point: 0,
+            input_min: -1.0,
+            input_max: 1.0,
+            num_classes: 2,
+            class_labels: vec!["yes".to_string(), "no".to_string()],
+        };
+
+        let json = serde_json::to_string(&qw).unwrap();
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let loaded = Model::load_quantized_weights(tmp.path()).unwrap();
+        assert_eq!(loaded.layers.len(), 1);
+        assert_eq!(loaded.layers[0].name, "q");
+        assert_eq!(loaded.num_classes, 2);
+        assert_eq!(loaded.class_labels, vec!["yes", "no"]);
+        assert_eq!(loaded.layers[0].weights_int8, vec![10i8, -10, 20, -20]);
+        assert_eq!(loaded.layers[0].bias_int32, vec![50, -50]);
+    }
+
+    #[test]
+    fn test_load_quantized_weights_invalid_json() {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"definitely not json").unwrap();
+        tmp.flush().unwrap();
+
+        let result = Model::load_quantized_weights(tmp.path());
+        assert!(result.is_err(), "invalid JSON should return an error");
+    }
+
+    #[test]
+    fn test_load_quantized_weights_missing_file() {
+        let result = Model::load_quantized_weights("/no/such/file/quantized.json");
+        assert!(result.is_err(), "missing file should return an error");
+    }
+
+    #[test]
+    fn test_load_extracted_weights_multiple_layers() {
+        use std::io::Write;
+
+        let extracted = ExtractedWeights {
+            layers: vec![
+                ExtractedLayerWeights {
+                    name: "layer_a".to_string(),
+                    layer_type: LayerType::Conv2d,
+                    input_size: 4,
+                    output_size: 8,
+                    weights: vec![0.5; 32],
+                    bias: vec![0.1; 8],
+                },
+                ExtractedLayerWeights {
+                    name: "layer_b".to_string(),
+                    layer_type: LayerType::Dense,
+                    input_size: 8,
+                    output_size: 3,
+                    weights: vec![-0.1; 24],
+                    bias: vec![0.0; 3],
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&extracted).unwrap();
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let loaded = Model::load_extracted_weights(tmp.path()).unwrap();
+        assert_eq!(loaded.layers.len(), 2);
+        assert_eq!(loaded.layers[0].name, "layer_a");
+        assert_eq!(loaded.layers[0].layer_type, LayerType::Conv2d);
+        assert_eq!(loaded.layers[1].name, "layer_b");
+        assert_eq!(loaded.layers[1].layer_type, LayerType::Dense);
     }
 }

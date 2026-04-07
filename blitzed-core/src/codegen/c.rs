@@ -212,28 +212,11 @@ int model_predict(const model_input_t* input, model_output_t* output) {{
         uint32_t start_time = 0;
     #endif
     
-    // Simplified inference - in reality this would be layer-by-layer processing
-    // Initialize output
+    // TEMPLATE: This is a structural template for the inference function.
+    // It does NOT perform real inference - weights are placeholders.
+    // For real INT8 inference on ESP32, use Esp32CodeGen::generate_from_weights()
+    // which generates proper layer-by-layer matmul with requantization.
     memset(output, 0, MODEL_OUTPUT_SIZE * sizeof(model_output_t));
-    
-    // Example quantized inference computation
-    for (int out = 0; out < MODEL_OUTPUT_SIZE && out < 10; out++) {{
-        model_accumulator_t acc = model_instance.biases[out % 10];
-        
-        // Simulate matrix multiplication with quantized values
-        for (int in = 0; in < 100 && in < MODEL_INPUT_SIZE; in++) {{
-            int weight_idx = (out * 100 + in) % (sizeof(model_weights)/sizeof(model_weights[0]));
-            acc += (model_accumulator_t)input[in] * (model_accumulator_t)model_weights[weight_idx];
-        }}
-        
-        // Quantize back to INT8 with ReLU activation
-        acc = acc >> 8;  // Scale down from accumulator
-        if (acc < 0) acc = 0;      // ReLU activation
-        if (acc > 127) acc = 127;  // Clip to INT8 range
-        if (acc < -128) acc = -128;
-        
-        output[out] = (model_output_t)acc;
-    }}
     
     #ifdef ESP32_TARGET
         last_inference_time_us = (uint32_t)(esp_timer_get_time() - start_time);
@@ -279,24 +262,23 @@ uint32_t model_get_memory_usage(void) {{
     }
 
     fn serialize_weights(model: &Model) -> String {
-        // Generate sample quantized weights based on model parameters
+        // PLACEHOLDER: Generates zero-filled weight arrays as structural templates.
+        // For real inference with trained weights, use Esp32CodeGen::generate_from_weights()
+        // which emits actual INT8 quantized weights from a trained model.
         let mut weights = Vec::new();
-        let param_count = model.info().parameter_count.min(1000); // Limit for demo
+        let param_count = model.info().parameter_count.min(1000); // Limit for template
 
         for i in 0..param_count {
             if i % 16 == 0 {
                 weights.push("\n    ".to_string());
             }
-            // Generate pseudo-random INT8 weights
-            #[allow(clippy::cast_possible_truncation)] // Intentional for INT8 range
-            let weight = (((i * 7 + 13) % 255) as i8).wrapping_sub(127);
-            weights.push(format!("{weight}, "));
+            weights.push("0, ".to_string());
         }
 
         if weights.is_empty() {
-            "    0, 1, -1, 2, -2  // Minimal weights".to_string()
+            "    0, 0, 0, 0, 0  // Placeholder weights - not trained".to_string()
         } else {
-            weights.join("") + "\n    // End of weights"
+            weights.join("") + "\n    // PLACEHOLDER: zero-filled, not trained weights"
         }
     }
 
@@ -598,7 +580,7 @@ mod tests {
 
         assert!(!weights.is_empty());
         assert!(weights.contains(','));
-        assert!(weights.contains("End of weights"));
+        assert!(weights.contains("PLACEHOLDER"));
     }
 
     #[test]
@@ -676,5 +658,59 @@ mod tests {
         assert_eq!(codegen.target_name(), "c");
         assert!(!codegen.dependencies().is_empty());
         assert!(codegen.dependencies().contains(&"gcc".to_string()));
+    }
+
+    #[test]
+    fn test_placeholder_weights_are_zeros() {
+        let model = create_test_model();
+        let weights = CCodeGen::serialize_weights(&model);
+
+        // Parse every token that looks like a numeric literal and verify none are non-zero.
+        // The old pseudo-random pattern emitted values like `weight_idx = (out * 100 + in)`,
+        // which produced non-zero integers. The replacement must be zero-filled.
+        let non_zero_numeric = weights
+            .split(|c: char| !c.is_ascii_digit() && c != '-')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<i64>().ok())
+            .any(|v| v != 0);
+
+        assert!(
+            !non_zero_numeric,
+            "serialize_weights() must produce only zeros; got: {}",
+            &weights[..weights.len().min(200)]
+        );
+    }
+
+    #[test]
+    fn test_implementation_is_template_not_fake_inference() {
+        let codegen = CCodeGen::with_target("esp32");
+        let model = create_test_model();
+        let impl_code = codegen.generate_implementation(&model);
+
+        // Must contain the TEMPLATE marker added during the fake-code cleanup.
+        assert!(
+            impl_code.contains("TEMPLATE"),
+            "generate_implementation() must include a TEMPLATE comment"
+        );
+
+        // Must NOT contain the old fake matmul index arithmetic that was removed.
+        assert!(
+            !impl_code.contains("weight_idx = (out * 100 + in)"),
+            "generate_implementation() must not contain the old fake matmul pattern"
+        );
+    }
+
+    #[test]
+    fn test_implementation_references_real_codegen() {
+        let codegen = CCodeGen::new();
+        let model = create_test_model();
+        let impl_code = codegen.generate_implementation(&model);
+
+        // The template comment must direct users to the real code-generation path.
+        assert!(
+            impl_code.contains("Esp32CodeGen::generate_from_weights"),
+            "generate_implementation() must reference Esp32CodeGen::generate_from_weights \
+             so users know where to find real inference code"
+        );
     }
 }

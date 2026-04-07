@@ -321,14 +321,15 @@ impl ExecutionGraph {
             }
         };
 
-        // Generate dummy parameters for demonstration
+        // PLACEHOLDER: Creates zero-initialized parameters for structural graph execution.
+        // These are NOT trained weights. For real inference with trained weights,
+        // use the quantized inference path via Esp32CodeGen::generate_from_weights().
         let mut parameters = HashMap::new();
 
         match &node_type {
             NodeType::Conv2D { .. } => {
-                // Create dummy conv weights and bias
-                let weight_shape = vec![64, 3, 3, 3]; // Example: 64 filters, 3 channels, 3x3 kernel
-                let weight_data = vec![0.1f32; 64 * 3 * 3 * 3];
+                let weight_shape = vec![64, 3, 3, 3];
+                let weight_data = vec![0.0f32; 64 * 3 * 3 * 3];
                 parameters.insert(
                     "weight".to_string(),
                     Tensor::new(weight_shape, TensorData::Float32(weight_data)),
@@ -341,11 +342,10 @@ impl ExecutionGraph {
                 );
             }
             NodeType::Linear => {
-                // Create dummy linear weights and bias
                 let input_size = *layer.input_shape.last().unwrap_or(&512) as usize;
                 let output_size = *layer.output_shape.last().unwrap_or(&256) as usize;
 
-                let weight_data = vec![0.1f32; input_size * output_size];
+                let weight_data = vec![0.0f32; input_size * output_size];
                 parameters.insert(
                     "weight".to_string(),
                     Tensor::new(
@@ -1516,5 +1516,80 @@ mod tests {
         assert!(!config.enable_parallel);
         assert_eq!(config.max_memory_pool_mb, 64.0);
         assert!(!config.enable_fusion);
+    }
+
+    #[test]
+    fn test_placeholder_weights_are_zero() {
+        // Build a model with a single Linear layer and create its graph node.
+        let layer = LayerInfo {
+            name: "fc".to_string(),
+            layer_type: "linear".to_string(),
+            input_shape: vec![1, 8],
+            output_shape: vec![1, 4],
+            parameter_count: 36,
+            flops: 32,
+        };
+
+        let node =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string())
+                .unwrap();
+
+        // Both weight and bias tensors must be all zeros (changed from 0.1).
+        for param_name in &["weight", "bias"] {
+            let tensor = node
+                .parameters
+                .get(*param_name)
+                .unwrap_or_else(|| panic!("Linear node missing '{}' parameter", param_name));
+
+            if let TensorData::Float32(data) = &tensor.data {
+                let all_zero = data.iter().all(|&v| v == 0.0f32);
+                assert!(
+                    all_zero,
+                    "Linear placeholder '{}' contains non-zero values (old 0.1 dummy weights \
+                     were not replaced); first value = {}",
+                    param_name,
+                    data.first().copied().unwrap_or(f32::NAN)
+                );
+            } else {
+                panic!("Expected Float32 data for parameter '{}'", param_name);
+            }
+        }
+    }
+
+    #[test]
+    fn test_placeholder_conv_weights_are_zero() {
+        // Build a model with a Conv2D layer and verify its placeholder weights are zero.
+        let layer = LayerInfo {
+            name: "conv1".to_string(),
+            layer_type: "conv2d".to_string(),
+            input_shape: vec![1, 3, 16, 16],
+            output_shape: vec![1, 64, 16, 16],
+            parameter_count: 1728,
+            flops: 442_368,
+        };
+
+        let node =
+            ExecutionGraph::create_node_from_layer(&layer, "in".to_string(), "out".to_string())
+                .unwrap();
+
+        for param_name in &["weight", "bias"] {
+            let tensor = node
+                .parameters
+                .get(*param_name)
+                .unwrap_or_else(|| panic!("Conv2D node missing '{}' parameter", param_name));
+
+            if let TensorData::Float32(data) = &tensor.data {
+                let all_zero = data.iter().all(|&v| v == 0.0f32);
+                assert!(
+                    all_zero,
+                    "Conv2D placeholder '{}' contains non-zero values (old 0.1 dummy weights \
+                     were not replaced); first value = {}",
+                    param_name,
+                    data.first().copied().unwrap_or(f32::NAN)
+                );
+            } else {
+                panic!("Expected Float32 data for parameter '{}'", param_name);
+            }
+        }
     }
 }
