@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import csv
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +26,10 @@ from build_predictive_maintenance_release import (
 )
 from train_predictive_maintenance import CLASS_NAMES, generate_training_data
 
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RELEASE_BUILDER = REPO_ROOT / "tools" / "build_predictive_maintenance_release.py"
+VERIFY_RELEASE = REPO_ROOT / "tools" / "verify_predictive_maintenance_release.py"
 
 FIRMWARE_MAIN = (
     Path(__file__).resolve().parents[1]
@@ -89,6 +97,51 @@ def test_shutdown_recall_gate_report_is_auditable():
         "status": "passed",
         "error": None,
     }
+
+
+def test_release_builder_writes_and_verifies_gate_artifact(tmp_path):
+    X, y = generate_training_data(n_samples=80, seed=11)
+    dataset_path = tmp_path / "machine-readings.csv"
+    output_dir = tmp_path / "release"
+    with dataset_path.open("w", newline="") as dataset_file:
+        writer = csv.writer(dataset_file)
+        writer.writerow(["temperature", "rms_accel_x", "rms_accel_y", "rms_accel_z", "label"])
+        for features, label in zip(X, y):
+            writer.writerow([*features, CLASS_NAMES[int(label)]])
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RELEASE_BUILDER),
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--epochs",
+            "20",
+            "--min-shutdown-recall",
+            "0.0",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    gate_path = output_dir / "blitzed_release_gate.json"
+    manifest_path = output_dir / "blitzed_release_manifest.json"
+    gate = json.loads(gate_path.read_text())
+    manifest = json.loads(manifest_path.read_text())
+    assert gate["status"] == "passed"
+    assert "blitzed_release_gate.json" in [entry["path"] for entry in manifest["files"]]
+
+    verification = subprocess.run(
+        [sys.executable, str(VERIFY_RELEASE), str(manifest_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert verification.returncode == 0, verification.stdout + verification.stderr
 
 
 def test_firmware_does_not_classify_failed_sensor_reads():
