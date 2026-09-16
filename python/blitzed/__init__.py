@@ -28,10 +28,16 @@ Key features:
 __version__ = "0.1.0"
 __author__ = "Gibran Rodriguez <brangi000@gmail.com>"
 
-# Import core functionality
+# Import core functionality. Optional subpackages stay unavailable when a
+# lightweight source checkout does not include their implementation modules.
 from . import optimization
 from . import converters
-from . import targets
+
+try:
+    from . import targets
+except ModuleNotFoundError:
+    targets = None
+
 from . import cli
 
 # Import main classes for convenience

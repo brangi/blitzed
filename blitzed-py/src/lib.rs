@@ -51,7 +51,7 @@ fn load_model(path: String) -> PyResult<Py<PyDict>> {
     let model = Model::load(&path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         let info = model.info();
 
@@ -71,6 +71,9 @@ fn load_model(path: String) -> PyResult<Py<PyDict>> {
 
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// Quantize a model with specified configuration
@@ -160,7 +163,7 @@ fn estimate_quantization_impact(
         .estimate_impact(&model, &quant_config)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
@@ -168,6 +171,9 @@ fn estimate_quantization_impact(
         dict.set_item("memory_reduction", impact.memory_reduction)?;
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// Optimize a model with full optimization pipeline
@@ -198,7 +204,7 @@ fn optimize_model(
         .optimize(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         dict.set_item("original_size", result.original_size)?;
         dict.set_item("optimized_size", result.optimized_size)?;
@@ -212,6 +218,9 @@ fn optimize_model(
 
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// Estimate optimization impact for full pipeline
@@ -240,7 +249,7 @@ fn estimate_optimization_impact(
         .estimate_impact(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         dict.set_item("size_reduction", impact.size_reduction)?;
         dict.set_item("speed_improvement", impact.speed_improvement)?;
@@ -248,6 +257,9 @@ fn estimate_optimization_impact(
         dict.set_item("memory_reduction", impact.memory_reduction)?;
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// Get optimization recommendations
@@ -290,7 +302,7 @@ fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py
         .profile_inference(&model)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         dict.set_item("model_size_bytes", model.info().model_size_bytes)?;
         dict.set_item("estimated_memory_usage", metrics.memory_usage_bytes)?;
@@ -298,6 +310,9 @@ fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py
         dict.set_item("estimated_throughput", metrics.throughput)?;
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// Generate deployment code for target platform
@@ -317,7 +332,7 @@ fn generate_deployment_code(
         .generate(&target, &model, &output_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Python::with_gil(|py| {
+    Python::try_attach(|py| {
         let dict = PyDict::new(py);
         dict.set_item("implementation_file", generated.implementation_file)?;
 
@@ -338,6 +353,9 @@ fn generate_deployment_code(
 
         Ok(dict.into())
     })
+    .ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
+    })?
 }
 
 /// List supported target platforms

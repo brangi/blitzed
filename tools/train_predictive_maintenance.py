@@ -24,8 +24,91 @@ Usage:
     python tools/train_predictive_maintenance.py
 """
 
+import argparse
+import csv
+import hashlib
+import json
+import platform
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
 import numpy as np
-import os
+
+
+CLASS_NAMES = ["healthy", "warning", "critical", "shutdown_required"]
+FEATURE_COLUMNS = ["temperature", "rms_accel_x", "rms_accel_y", "rms_accel_z"]
+LABEL_COLUMN = "label"
+
+
+def sha256_file(path):
+    """Return the SHA-256 digest for a file."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as input_file:
+        for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_revision(project_root):
+    """Return the current Git revision, or ``unknown`` outside a checkout."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def build_release_manifest(output_dir, artifact_paths, provenance):
+    """Build a checksummed manifest for an exported model release."""
+    output_dir = Path(output_dir).resolve()
+    files = []
+    for artifact_path in artifact_paths:
+        artifact_path = Path(artifact_path).resolve()
+        files.append(
+            {
+                "path": str(artifact_path.relative_to(output_dir)),
+                "size_bytes": artifact_path.stat().st_size,
+                "sha256": sha256_file(artifact_path),
+            }
+        )
+    return {
+        "manifest_version": 1,
+        "product": "Blitzed Predictive Maintenance Starter Kit",
+        "provenance": provenance,
+        "files": files,
+    }
+
+
+def build_provenance(args, project_root, dataset_path=None):
+    """Build audit metadata for a quality report or exported model."""
+    script_path = Path(__file__).resolve()
+    provenance = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "git_revision": git_revision(project_root),
+        "training_script": str(script_path),
+        "training_script_sha256": sha256_file(script_path),
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
+        "parameters": {
+            "seed": args.seed,
+            "samples": args.samples,
+            "epochs": args.epochs,
+            "learning_rate": args.learning_rate,
+            "validation_split": args.validation_split,
+        },
+    }
+    if dataset_path:
+        dataset_path = Path(dataset_path).resolve()
+        provenance["dataset_path"] = str(dataset_path)
+        provenance["dataset_sha256"] = sha256_file(dataset_path)
+    else:
+        provenance["dataset_source"] = "synthetic"
+    return provenance
 
 
 # -----------------------------------------------------------------------
@@ -168,6 +251,158 @@ def generate_training_data(n_samples=3000, seed=42):
     y = y[indices]
 
     return X, y
+
+
+def load_dataset_csv(path):
+    """Load labeled sensor readings from the starter kit CSV contract.
+
+    Required columns are ``temperature``, ``rms_accel_x``, ``rms_accel_y``,
+    ``rms_accel_z``, and ``label``. Labels may be class names or integer IDs.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError(f"Dataset does not exist: {path}")
+
+    samples = []
+    labels = []
+    label_ids = {name: index for index, name in enumerate(CLASS_NAMES)}
+    with path.open(newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        if reader.fieldnames is None:
+            raise ValueError("Dataset CSV must include a header row")
+        missing = [column for column in FEATURE_COLUMNS + [LABEL_COLUMN] if column not in reader.fieldnames]
+        if missing:
+            raise ValueError(f"Dataset CSV is missing columns: {', '.join(missing)}")
+
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                samples.append([float(row[column]) for column in FEATURE_COLUMNS])
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Invalid numeric value on CSV row {row_number}") from error
+
+            raw_label_value = row.get(LABEL_COLUMN)
+            if raw_label_value is None or not raw_label_value.strip():
+                raise ValueError(f"Missing label on CSV row {row_number}")
+            raw_label = raw_label_value.strip().lower()
+            if raw_label in label_ids:
+                labels.append(label_ids[raw_label])
+            else:
+                try:
+                    label_id = int(raw_label)
+                except ValueError as error:
+                    raise ValueError(
+                        f"Invalid label on CSV row {row_number}: {row[LABEL_COLUMN]!r}"
+                    ) from error
+                if label_id < 0 or label_id >= len(CLASS_NAMES):
+                    raise ValueError(
+                        f"Label on CSV row {row_number} must be 0-{len(CLASS_NAMES) - 1}"
+                    )
+                labels.append(label_id)
+
+    if len(samples) < 8:
+        raise ValueError("Dataset must contain at least 8 rows")
+    X = np.asarray(samples, dtype=np.float64)
+    y = np.asarray(labels, dtype=int)
+    if not np.isfinite(X).all():
+        raise ValueError("Dataset contains non-finite sensor values")
+    return X, y
+
+
+def dataset_quality_report(X, y):
+    """Return dataset quality metrics and actionable warnings."""
+    class_counts = np.bincount(y, minlength=len(CLASS_NAMES))
+    feature_ranges = {
+        "temperature": (0.0, 120.0),
+        "rms_accel_x": (0.0, 12.0),
+        "rms_accel_y": (0.0, 12.0),
+        "rms_accel_z": (0.0, 12.0),
+    }
+    feature_stats = {}
+    out_of_range = {}
+    warnings = []
+
+    for index, feature_name in enumerate(FEATURE_COLUMNS):
+        values = X[:, index]
+        minimum, maximum = feature_ranges[feature_name]
+        out_of_range[feature_name] = int(np.count_nonzero((values < minimum) | (values > maximum)))
+        feature_stats[feature_name] = {
+            "min": float(np.min(values)),
+            "max": float(np.max(values)),
+            "mean": float(np.mean(values)),
+            "std": float(np.std(values)),
+        }
+        if out_of_range[feature_name]:
+            warnings.append(
+                f"{feature_name} has {out_of_range[feature_name]} readings outside "
+                f"the expected range [{minimum}, {maximum}]"
+            )
+
+    missing_classes = [
+        CLASS_NAMES[class_id]
+        for class_id, count in enumerate(class_counts)
+        if count == 0
+    ]
+    if missing_classes:
+        warnings.append("Missing classes: " + ", ".join(missing_classes))
+    if any(count < 2 for count in class_counts if count > 0):
+        warnings.append("Some classes have fewer than two samples and cannot be split for validation")
+
+    nonzero_counts = class_counts[class_counts > 0]
+    if len(nonzero_counts) > 1 and nonzero_counts.max() / nonzero_counts.min() > 5:
+        warnings.append("Class imbalance exceeds 5:1; collect more samples for minority classes")
+
+    duplicate_count = int(len(X) - len(np.unique(X, axis=0)))
+    if duplicate_count:
+        warnings.append(f"Found {duplicate_count} duplicate sensor rows")
+
+    return {
+        "rows": int(len(X)),
+        "class_counts": {
+            CLASS_NAMES[class_id]: int(count)
+            for class_id, count in enumerate(class_counts)
+        },
+        "feature_stats": feature_stats,
+        "out_of_expected_range": out_of_range,
+        "duplicate_rows": duplicate_count,
+        "missing_classes": missing_classes,
+        "warnings": warnings,
+    }
+
+
+def split_dataset(X, y, validation_split, seed):
+    """Create a deterministic stratified train/validation split."""
+    if not 0.0 < validation_split < 1.0:
+        raise ValueError("validation-split must be between 0 and 1")
+
+    rng = np.random.default_rng(seed)
+    train_indices = []
+    validation_indices = []
+    for class_id in range(len(CLASS_NAMES)):
+        class_indices = np.flatnonzero(y == class_id)
+        if len(class_indices) < 2:
+            train_indices.extend(class_indices.tolist())
+            continue
+        class_indices = class_indices[rng.permutation(len(class_indices))]
+        validation_count = max(1, int(round(len(class_indices) * validation_split)))
+        validation_count = min(validation_count, len(class_indices) - 1)
+        validation_indices.extend(class_indices[:validation_count].tolist())
+        train_indices.extend(class_indices[validation_count:].tolist())
+
+    if not validation_indices or not train_indices:
+        raise ValueError("Dataset must contain enough samples for train and validation splits")
+    missing_training_classes = [
+        CLASS_NAMES[class_id] for class_id in range(len(CLASS_NAMES))
+        if not any(y[index] == class_id for index in train_indices)
+    ]
+    if missing_training_classes:
+        raise ValueError(
+            "Training data is missing classes: " + ", ".join(missing_training_classes)
+        )
+    train_indices = np.asarray(train_indices, dtype=int)
+    validation_indices = np.asarray(validation_indices, dtype=int)
+    train_indices = train_indices[rng.permutation(len(train_indices))]
+    validation_indices = validation_indices[rng.permutation(len(validation_indices))]
+    return X[train_indices], y[train_indices], X[validation_indices], y[validation_indices]
 
 
 # -----------------------------------------------------------------------
@@ -321,9 +556,9 @@ def quantize_model(layer1, layer2, X_calibration, input_scale=1.0 / 255.0):
     return quantized
 
 
-def test_quantized_model(quantized, X_norm, y):
+def test_quantized_model(quantized, X_norm, y, verbose=True):
     """
-    Evaluate quantized model accuracy on the training set.
+    Evaluate the quantized model using the same pipeline as the ESP32 kernel.
 
     Mirrors the exact INT8 pipeline in blitzed_inference.c:
       1. Quantize inputs using input_scale
@@ -378,15 +613,35 @@ def test_quantized_model(quantized, X_norm, y):
 
     y_pred      = softmax(z2)
     predictions = np.argmax(y_pred, axis=1)
-    accuracy    = np.mean(predictions == y)
-    print(f"Quantized model accuracy: {accuracy:.4f}")
+    accuracy = float(np.mean(predictions == y))
 
-    for cls in range(4):
-        mask    = (y == cls)
-        cls_acc = np.mean(predictions[mask] == y[mask]) if mask.any() else 0.0
-        print(f"  Class {cls} accuracy: {cls_acc:.4f}  ({mask.sum()} samples)")
+    if verbose:
+        print(f"Quantized model accuracy: {accuracy:.4f}")
+        for cls in range(4):
+            mask = y == cls
+            cls_acc = np.mean(predictions[mask] == y[mask]) if mask.any() else 0.0
+            print(f"  Class {cls} accuracy: {cls_acc:.4f}  ({mask.sum()} samples)")
 
-    return accuracy
+    return accuracy, predictions
+
+
+def predict_float_model(layer1, layer2, X_norm):
+    """Return float-model class predictions for normalized inputs."""
+    hidden = relu(layer1.forward(X_norm))
+    logits = layer2.forward(hidden)
+    return np.argmax(softmax(logits), axis=1)
+
+
+def accuracy_by_class(predictions, labels, class_names):
+    """Return overall and per-class accuracy metrics."""
+    metrics = {"overall": float(np.mean(predictions == labels))}
+    metrics["per_class"] = {}
+    for class_id, class_name in enumerate(class_names):
+        mask = labels == class_id
+        metrics["per_class"][class_name] = (
+            float(np.mean(predictions[mask] == labels[mask])) if mask.any() else 0.0
+        )
+    return metrics
 
 
 # -----------------------------------------------------------------------
@@ -543,19 +798,93 @@ def print_weight_statistics(layer1, layer2, quantized):
 # Main
 # -----------------------------------------------------------------------
 
+def parse_args():
+    """Parse reproducible training and export options."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--samples", type=int, default=3000, help="Synthetic samples to generate")
+    parser.add_argument("--epochs", type=int, default=1000, help="Training epochs")
+    parser.add_argument("--learning-rate", type=float, default=0.1, help="Gradient descent learning rate")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=None,
+        help="Labeled CSV dataset; synthetic data is used when omitted",
+    )
+    parser.add_argument(
+        "--validation-split",
+        type=float,
+        default=0.2,
+        help="Fraction of each class reserved for validation",
+    )
+    parser.add_argument(
+        "--quality-only",
+        action="store_true",
+        help="Write dataset quality JSON and exit without training (requires --dataset)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for model artifacts (defaults to the demo main directory)",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     print("=" * 60)
     print("ESP32 Predictive Maintenance Classifier Training")
     print("=" * 60)
 
-    # ---- Generate data ----
-    print("\nGenerating training data...")
-    X_raw, y = generate_training_data(n_samples=3000)
-    print(f"Generated {len(X_raw)} samples")
-    class_names = ["healthy", "warning", "critical", "shutdown_required"]
-    counts = np.bincount(y, minlength=4)
-    for cls, (name, count) in enumerate(zip(class_names, counts)):
+    if args.samples < 8 or args.epochs < 1 or args.learning_rate <= 0:
+        raise ValueError("samples must be >= 8, epochs must be >= 1, and learning-rate must be positive")
+    if args.quality_only and not args.dataset:
+        raise ValueError("--quality-only requires --dataset")
+
+    # ---- Load or generate data ----
+    if args.dataset:
+        print(f"\nLoading labeled dataset: {args.dataset}")
+        X_raw, y = load_dataset_csv(args.dataset)
+        dataset_source = str(args.dataset)
+    else:
+        print("\nGenerating synthetic training data...")
+        X_raw, y = generate_training_data(n_samples=args.samples, seed=args.seed)
+        dataset_source = "synthetic"
+    print(f"Loaded {len(X_raw)} samples")
+    counts = np.bincount(y, minlength=len(CLASS_NAMES))
+    for cls, (name, count) in enumerate(zip(CLASS_NAMES, counts)):
         print(f"  Class {cls} ({name}): {count} samples ({100*count/len(y):.1f}%)")
+
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent
+    provenance = build_provenance(args, project_root, args.dataset)
+    quality = dataset_quality_report(X_raw, y)
+    print(f"Duplicate sensor rows: {quality['duplicate_rows']}")
+    if quality["warnings"]:
+        print("Dataset quality warnings:")
+        for warning in quality["warnings"]:
+            print(f"  - {warning}")
+
+    if args.quality_only:
+        output_dir = args.output_dir or project_root / "esp32_demo" / "predictive_maintenance" / "main"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        quality_path = output_dir / "blitzed_dataset_quality.json"
+        quality_path.write_text(
+            json.dumps(
+                {"dataset_source": dataset_source, "provenance": provenance, **quality},
+                indent=2,
+            )
+            + "\n"
+        )
+        print(f"Dataset quality report: {quality_path}")
+        return
+
+    # ---- Deterministic stratified train/validation split ----
+    # Keep the validation set separate from both training and activation calibration.
+    X_train_raw, y_train, X_validation_raw, y_validation = split_dataset(
+        X_raw, y, args.validation_split, args.seed + 1
+    )
 
     # ---- Normalise inputs ----
     # Normalisation mirrors the on-device code in main.c:
@@ -566,46 +895,97 @@ def main():
     TEMP_NORM  = 120.0
     ACCEL_NORM = 12.0
 
-    X_norm = X_raw.copy()
-    X_norm[:, 0] /= TEMP_NORM   # temperature
-    X_norm[:, 1] /= ACCEL_NORM  # rms_x
-    X_norm[:, 2] /= ACCEL_NORM  # rms_y
-    X_norm[:, 3] /= ACCEL_NORM  # rms_z
+    def normalize_inputs(values):
+        normalized = values.copy()
+        normalized[:, 0] /= TEMP_NORM
+        normalized[:, 1] /= ACCEL_NORM
+        normalized[:, 2] /= ACCEL_NORM
+        normalized[:, 3] /= ACCEL_NORM
+        return normalized
+
+    X_train_norm = normalize_inputs(X_train_raw)
+    X_validation_norm = normalize_inputs(X_validation_raw)
 
     print(f"\nNormalised input ranges:")
     feature_names = ["temp/120", "rms_x/12", "rms_y/12", "rms_z/12"]
     for i, name in enumerate(feature_names):
-        print(f"  [{i}] {name}: [{X_norm[:, i].min():.3f}, {X_norm[:, i].max():.3f}]")
+        print(f"  [{i}] {name}: [{X_train_norm[:, i].min():.3f}, {X_train_norm[:, i].max():.3f}]")
+    print(f"Training samples: {len(X_train_norm)} | Validation samples: {len(X_validation_norm)}")
 
     # ---- Train ----
-    layer1, layer2 = train_model(X_norm, y, epochs=1000, learning_rate=0.1)
+    layer1, layer2 = train_model(
+        X_train_norm,
+        y_train,
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+    )
 
     # ---- Quantize ----
     # input_scale = max_abs / 127.0 so that the full normalised range [-1, 1]
     # maps to INT8 [-127, 127]. Using 1/255 would clip at ±0.498 — destroying
     # the ability to distinguish classes with higher feature values.
     input_scale = 1.0 / 127.0
-    quantized = quantize_model(layer1, layer2, X_norm, input_scale=input_scale)
+    quantized = quantize_model(layer1, layer2, X_train_norm, input_scale=input_scale)
 
-    # ---- Evaluate quantized accuracy ----
-    test_quantized_model(quantized, X_norm, y)
+    # ---- Evaluate on held-out data ----
+    float_predictions = predict_float_model(layer1, layer2, X_validation_norm)
+    quantized_accuracy, quantized_predictions = test_quantized_model(
+        quantized, X_validation_norm, y_validation
+    )
+    float_metrics = accuracy_by_class(float_predictions, y_validation, CLASS_NAMES)
+    quantized_metrics = accuracy_by_class(quantized_predictions, y_validation, CLASS_NAMES)
+    print(f"Float validation accuracy: {float_metrics['overall']:.4f}")
+    print(f"INT8 validation accuracy: {quantized_accuracy:.4f}")
 
     # ---- Print statistics ----
     print_weight_statistics(layer1, layer2, quantized)
 
     # ---- Export ----
-    script_dir   = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
+    default_output_dir = project_root / "esp32_demo" / "predictive_maintenance" / "main"
+    output_dir = args.output_dir or default_output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    header_path = os.path.join(project_root, 'esp32_demo', 'predictive_maintenance',
-                               'main', 'blitzed_model_weights.h')
-    binary_path = os.path.join(project_root, 'esp32_demo', 'predictive_maintenance',
-                               'main', 'blitzed_model_weights.bin')
+    header_path = output_dir / "blitzed_model_weights.h"
+    binary_path = output_dir / "blitzed_model_weights.bin"
+    report_path = output_dir / "blitzed_model_report.json"
+    manifest_path = output_dir / "blitzed_release_manifest.json"
 
-    os.makedirs(os.path.dirname(header_path), exist_ok=True)
-
-    model_size = export_to_c_header(quantized, header_path)
-    export_binary_weights(quantized, binary_path)
+    model_size = export_to_c_header(quantized, str(header_path))
+    export_binary_weights(quantized, str(binary_path))
+    report = {
+        "product": "Blitzed Predictive Maintenance Starter Kit",
+        "dataset_source": dataset_source,
+        "seed": args.seed,
+        "samples": len(X_raw),
+        "training_samples": len(X_train_norm),
+        "validation_samples": len(X_validation_norm),
+        "validation_split": args.validation_split,
+        "epochs": args.epochs,
+        "learning_rate": args.learning_rate,
+        "architecture": "Dense(4,32)+ReLU->Dense(32,4)",
+        "classes": CLASS_NAMES,
+        "dataset_quality": quality,
+        "provenance": provenance,
+        "float_validation": float_metrics,
+        "int8_validation": quantized_metrics,
+        "int8_accuracy_loss_percentage": (float_metrics["overall"] - quantized_metrics["overall"]) * 100.0,
+        "quantized_model_bytes": model_size,
+        "artifacts": {
+            "weights_header": str(header_path),
+            "weights_binary": str(binary_path),
+            "report": str(report_path),
+            "manifest": str(manifest_path),
+        },
+    }
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
+    manifest = build_release_manifest(
+        output_dir,
+        [header_path, binary_path, report_path],
+        provenance,
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"Validation report: {report_path}")
+    print(f"Release manifest: {manifest_path}")
 
     print("\n" + "=" * 60)
     print("Training complete!")
@@ -617,6 +997,8 @@ def main():
     print(f"\nModel files:")
     print(f"  {header_path}")
     print(f"  {binary_path}")
+    print(f"  {report_path}")
+    print(f"  {manifest_path}")
 
 
 if __name__ == '__main__':

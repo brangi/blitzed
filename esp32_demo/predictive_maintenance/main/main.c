@@ -128,7 +128,7 @@ static esp_err_t temp_sensor_init(void)
 
 static esp_err_t temp_sensor_read_celsius(float *out_celsius)
 {
-    return temp_sensor_read_celsius(out_celsius);
+    return temp_sensor_get_celsius(out_celsius);
 }
 
 #endif // HAVE_TEMP_SENSOR_V5

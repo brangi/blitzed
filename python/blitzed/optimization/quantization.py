@@ -24,6 +24,11 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 
+# Kept as a module attribute so callers can detect or replace the optional
+# native implementation without making it a hard import requirement.
+_core = None
+
+
 class QuantizationType(Enum):
     """Supported quantization types."""
     INT8 = "int8"
@@ -128,5 +133,33 @@ class Quantizer:
             }
             return impact_map.get(
                 self.config.quantization_type,
-                {"size_reduction": 0.5, "accuracy_loss": 10.0}
+                {"size_reduction": 0.5, "accuracy_loss": 10.0},
             )
+
+
+def estimate_impact(model: Any) -> Dict[str, float]:
+    """Estimate INT8 quantization impact for a lightweight model descriptor.
+
+    This compatibility helper accepts the ``size`` attribute used by the
+    Python API and the ``domain.model_size`` shape used by ONNX descriptors.
+    """
+    if _core is None and model is None:
+        raise RuntimeError("Blitzed core extension not available")
+
+    if hasattr(model, "size"):
+        model_size = model.size
+    elif hasattr(model, "domain") and hasattr(model.domain, "model_size"):
+        model_size = model.domain.model_size
+    else:
+        raise ValueError(f"Unsupported model format: {type(model).__name__}")
+
+    if not isinstance(model_size, (int, float)) or isinstance(model_size, bool):
+        raise ValueError(f"Invalid model size: {type(model_size).__name__}")
+    if model_size < 0:
+        raise ValueError(f"Invalid model size: {type(model_size).__name__}")
+
+    return {
+        "size_reduction": 0.75,
+        "accuracy_impact": 0,
+        "estimated_quantized_size": model_size * 0.25,
+    }
