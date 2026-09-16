@@ -72,9 +72,7 @@ fn load_model(path: String) -> PyResult<Py<PyDict>> {
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 
@@ -174,9 +172,7 @@ fn estimate_quantization_impact(
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 
@@ -223,9 +219,7 @@ fn optimize_model(
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 
@@ -264,9 +258,7 @@ fn estimate_optimization_impact(
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 
@@ -319,9 +311,7 @@ fn profile_model(model_path: String, _config: &Bound<'_, PyDict>) -> PyResult<Py
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 
@@ -364,9 +354,7 @@ fn generate_deployment_code(
         Ok(dict.into())
     })
     .ok_or_else(|| {
-        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-            "Python interpreter is not attached",
-        )
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Python interpreter is not attached")
     })?
 }
 

@@ -1,27 +1,31 @@
-import pytest
 from click.testing import CliRunner
+
 from blitzed.cli.main import cli
+
 
 def test_cli_help():
     runner = CliRunner()
-    result = runner.invoke(cli, ['--help'])
+    result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert 'Usage' in result.output
+    assert "Usage" in result.output
 
-def test_valid_command():
+
+def test_info_command():
     runner = CliRunner()
-    result = runner.invoke(cli, ['command', '--option', 'value'])
+    result = runner.invoke(cli, ["info"])
     assert result.exit_code == 0
-    assert 'Success!' in result.output
+    assert "Blitzed Information" in result.output
+
 
 def test_missing_required_arg():
     runner = CliRunner()
-    result = runner.invoke(cli, ['command'])
+    result = runner.invoke(cli, ["optimize"])
     assert result.exit_code != 0
-    assert 'Missing argument' in result.output
+    assert "Missing argument" in result.output
+
 
 def test_invalid_option():
     runner = CliRunner()
-    result = runner.invoke(cli, ['command', '--invalid', 'value'])
+    result = runner.invoke(cli, ["info", "--invalid"])
     assert result.exit_code != 0
-    assert 'no such option' in result.output
+    assert "No such option" in result.output

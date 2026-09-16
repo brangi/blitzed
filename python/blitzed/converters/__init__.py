@@ -12,24 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Model format converters for Blitzed.
+"""Model format converters for Blitzed.
 
-This module provides utilities for converting between different machine learning
-model formats (TensorFlow, PyTorch, ONNX, TFLite) for optimization and deployment.
+Optional format-specific converters are imported when their implementation is
+present. This keeps the base Python package usable in lightweight installs.
 """
 
 from .base import BaseConverter, ConversionConfig
 from .tflite import TFLiteConverter
-from .onnx import ONNXConverter
-from .pytorch import PyTorchConverter
-from .tensorflow import TensorFlowConverter
 
-__all__ = [
-    "BaseConverter",
-    "ConversionConfig",
-    "TFLiteConverter",
-    "ONNXConverter",
-    "PyTorchConverter",
-    "TensorFlowConverter",
-]
+__all__ = ["BaseConverter", "ConversionConfig", "TFLiteConverter"]
+
+try:
+    from .onnx import ONNXConverter
+except ModuleNotFoundError:
+    ONNXConverter = None
+else:
+    __all__.append("ONNXConverter")
+
+try:
+    from .pytorch import PyTorchConverter
+except ModuleNotFoundError:
+    PyTorchConverter = None
+else:
+    __all__.append("PyTorchConverter")
+
+try:
+    from .tensorflow import TensorFlowConverter
+except ModuleNotFoundError:
+    TensorFlowConverter = None
+else:
+    __all__.append("TensorFlowConverter")
