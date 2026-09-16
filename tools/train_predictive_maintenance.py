@@ -8,13 +8,13 @@ Implements INT8 post-training quantization and exports to C header.
 
 Model architecture:
     Dense(4, 32) + ReLU + Dense(32, 4)
-    Total parameters: (4*32 + 32) + (32*4 + 4) = 160 + 128 + 4 = 164 weights + 36 bias = 196
+    Total parameters: (4*32 + 32) + (32*4 + 4) = 160 + 132 = 292
 
 Classes:
-    0: healthy           — normal temp (25-45 C) + low vibration (RMS < 2.0 g per axis)
-    1: warning           — elevated temp (40-60 C) OR mildly elevated vibration (one axis 2.5-5.0 g)
-    2: critical          — high temp (55-80 C) AND elevated vibration (multi-axis 3.0-8.0 g)
-    3: shutdown_required — extreme temp (75-120 C) OR extreme vibration (any axis > 8.0 g)
+    0: healthy           — normal temp (25-40 C) + low vibration (RMS < 2.0 g per axis)
+    1: warning           — elevated temp (40-58 C) OR mildly elevated vibration (one axis 2.5-5.0 g)
+    2: critical          — high temp (58-80 C) + elevated multi-axis vibration (3.5-7.0 g)
+    3: shutdown_required — extreme temp (85-120 C) OR extreme vibration (any axis 8.0-12.0 g)
 
 Normalisation (must match main.c):
     temperature / 120.0
@@ -185,6 +185,9 @@ def generate_training_data(n_samples=3000, seed=42):
 
     Class distribution:
         40% healthy, 25% warning, 20% critical, 15% shutdown_required
+
+    Synthetic labels follow the same OR/AND safety rules described above; they
+    are intended to exercise both independent shutdown failure modes.
     """
     np.random.seed(seed)
 
@@ -197,48 +200,62 @@ def generate_training_data(n_samples=3000, seed=42):
     labels  = []
 
     # ---- Class 0: healthy ----
-    # Temperature: 25-45 °C, vibration RMS < 2.0 g per axis
-    temp_h  = np.random.uniform(25.0, 45.0, n_healthy)
-    vib_h   = np.random.uniform(0.1, 2.0, (n_healthy, 3))
+    # Keep healthy readings below both warning thresholds so labels are not
+    # contradictory at the boundary.
+    temp_h = np.random.uniform(25.0, 40.0, n_healthy)
+    vib_h = np.random.uniform(0.1, 1.8, (n_healthy, 3))
     noise_h = np.random.normal(0, 0.1, (n_healthy, 3))
-    vib_h   = np.clip(vib_h + noise_h, 0.05, 12.0)
+    vib_h = np.clip(vib_h + noise_h, 0.05, 12.0)
     samples.append(np.column_stack([temp_h, vib_h]))
     labels.append(np.zeros(n_healthy, dtype=int))
 
     # ---- Class 1: warning ----
-    # Either slightly elevated temperature OR mildly elevated vibration on one axis.
-    # We randomly pick which condition triggers for each sample.
-    temp_w = np.random.uniform(40.0, 60.0, n_warning)
-    vib_w  = np.random.uniform(0.5, 3.0, (n_warning, 3))
-
-    # Elevate exactly one vibration axis to warning level (2.5-5.0 g) for ~half
+    # Warning is an OR condition: elevated temperature with low vibration, or
+    # one mildly elevated vibration axis at an otherwise normal temperature.
+    warning_temperature = np.random.rand(n_warning) < 0.5
+    temp_w = np.where(
+        warning_temperature,
+        np.random.uniform(40.0, 58.0, n_warning),
+        np.random.uniform(30.0, 40.0, n_warning),
+    )
+    vib_w = np.random.uniform(0.5, 2.2, (n_warning, 3))
     warn_axis = np.random.randint(0, 3, n_warning)
     warn_vib_level = np.random.uniform(2.5, 5.0, n_warning)
     for i in range(n_warning):
-        if np.random.rand() > 0.5:
+        if not warning_temperature[i]:
             vib_w[i, warn_axis[i]] = warn_vib_level[i]
-
     noise_w = np.random.normal(0, 0.15, (n_warning, 3))
-    vib_w   = np.clip(vib_w + noise_w, 0.05, 12.0)
+    vib_w = np.clip(vib_w + noise_w, 0.05, 12.0)
     samples.append(np.column_stack([temp_w, vib_w]))
     labels.append(np.ones(n_warning, dtype=int))
 
     # ---- Class 2: critical ----
-    # High temperature (60-80 °C) AND elevated multi-axis vibration (4.0-8.0 g).
-    temp_c = np.random.uniform(60.0, 80.0, n_critical)
-    vib_c  = np.random.uniform(4.0, 8.0, (n_critical, 3))
+    # High temperature and elevated multi-axis vibration, but below the
+    # shutdown thresholds.
+    temp_c = np.random.uniform(58.0, 80.0, n_critical)
+    vib_c = np.random.uniform(3.5, 7.0, (n_critical, 3))
     noise_c = np.random.normal(0, 0.2, (n_critical, 3))
-    vib_c   = np.clip(vib_c + noise_c, 0.05, 12.0)
+    vib_c = np.clip(vib_c + noise_c, 0.05, 12.0)
     samples.append(np.column_stack([temp_c, vib_c]))
     labels.append(np.full(n_critical, 2, dtype=int))
 
     # ---- Class 3: shutdown_required ----
-    # Extreme temperature (> 85 °C) AND extreme vibration (all axes > 7.0 g).
-    # Both conditions present simultaneously — the worst case scenario.
-    temp_s = np.random.uniform(85.0, 120.0, n_shutdown)
-    vib_s  = np.random.uniform(7.0, 12.0, (n_shutdown, 3))
+    # Shutdown is also an OR condition: extreme temperature OR a severe
+    # vibration spike. Generate both failure modes so the model sees each.
+    temperature_shutdown = np.random.rand(n_shutdown) < 0.5
+    temp_s = np.where(
+        temperature_shutdown,
+        np.random.uniform(85.0, 120.0, n_shutdown),
+        np.random.uniform(30.0, 80.0, n_shutdown),
+    )
+    vib_s = np.random.uniform(0.5, 3.0, (n_shutdown, 3))
+    shutdown_axis = np.random.randint(0, 3, n_shutdown)
+    shutdown_vib_level = np.random.uniform(8.0, 12.0, n_shutdown)
+    for i in range(n_shutdown):
+        if not temperature_shutdown[i]:
+            vib_s[i, shutdown_axis[i]] = shutdown_vib_level[i]
     noise_s = np.random.normal(0, 0.3, (n_shutdown, 3))
-    vib_s   = np.clip(vib_s + noise_s, 0.05, 12.0)
+    vib_s = np.clip(vib_s + noise_s, 0.05, 12.0)
     samples.append(np.column_stack([temp_s, vib_s]))
     labels.append(np.full(n_shutdown, 3, dtype=int))
 
