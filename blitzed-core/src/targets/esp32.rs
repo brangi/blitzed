@@ -250,11 +250,7 @@ impl Esp32Target {
             memory_usage: total_memory,
             energy_consumption_mj: inference_energy_mj,
             fits_in_memory: total_memory <= self.specs.sram_size,
-            estimated_fps: if inference_time_us > 0 {
-                1_000_000 / inference_time_us
-            } else {
-                0
-            },
+            estimated_fps: 1_000_000u64.checked_div(inference_time_us).unwrap_or(0),
         })
     }
 

@@ -68,34 +68,28 @@ impl OnnxOperator {
         params: &OperatorParams,
     ) -> u64 {
         match self {
-            Self::Conv => {
+            Self::Conv if output_shape.len() >= 4 && input_shape.len() >= 4 => {
                 // FLOPs = 2 * H_out * W_out * C_out * C_in * K_h * K_w
-                if output_shape.len() >= 4 && input_shape.len() >= 4 {
-                    let batch = output_shape[0] as u64;
-                    let out_channels = output_shape[1] as u64;
-                    let out_h = output_shape[2] as u64;
-                    let out_w = output_shape[3] as u64;
-                    let in_channels = input_shape[1] as u64;
-                    let kernel_h = params.kernel_size.0 as u64;
-                    let kernel_w = params.kernel_size.1 as u64;
+                let batch = output_shape[0] as u64;
+                let out_channels = output_shape[1] as u64;
+                let out_h = output_shape[2] as u64;
+                let out_w = output_shape[3] as u64;
+                let in_channels = input_shape[1] as u64;
+                let kernel_h = params.kernel_size.0 as u64;
+                let kernel_w = params.kernel_size.1 as u64;
 
-                    batch * 2 * out_h * out_w * out_channels * in_channels * kernel_h * kernel_w
-                } else {
-                    0
-                }
+                batch * 2 * out_h * out_w * out_channels * in_channels * kernel_h * kernel_w
             }
-            Self::Linear => {
+            Self::Conv => 0,
+            Self::Linear if output_shape.len() >= 2 && input_shape.len() >= 2 => {
                 // FLOPs = 2 * batch * in_features * out_features
-                if output_shape.len() >= 2 && input_shape.len() >= 2 {
-                    let batch = output_shape[0] as u64;
-                    let in_features = input_shape[input_shape.len() - 1] as u64;
-                    let out_features = output_shape[output_shape.len() - 1] as u64;
+                let batch = output_shape[0] as u64;
+                let in_features = input_shape[input_shape.len() - 1] as u64;
+                let out_features = output_shape[output_shape.len() - 1] as u64;
 
-                    batch * 2 * in_features * out_features
-                } else {
-                    0
-                }
+                batch * 2 * in_features * out_features
             }
+            Self::Linear => 0,
             Self::BatchNorm => {
                 // FLOPs = 4 * num_elements (sub_mean, div_std, mul_gamma, add_beta)
                 output_shape.iter().product::<i64>() as u64 * 4
@@ -136,39 +130,30 @@ impl OnnxOperator {
         params: &OperatorParams,
     ) -> usize {
         match self {
-            Self::Conv => {
-                if output_shape.len() >= 4 && input_shape.len() >= 4 {
-                    let out_channels = output_shape[1] as usize;
-                    let in_channels = input_shape[1] as usize;
-                    let kernel_h = params.kernel_size.0 as usize;
-                    let kernel_w = params.kernel_size.1 as usize;
+            Self::Conv if output_shape.len() >= 4 && input_shape.len() >= 4 => {
+                let out_channels = output_shape[1] as usize;
+                let in_channels = input_shape[1] as usize;
+                let kernel_h = params.kernel_size.0 as usize;
+                let kernel_w = params.kernel_size.1 as usize;
 
-                    // Weights + bias
-                    (out_channels * in_channels * kernel_h * kernel_w) + out_channels
-                } else {
-                    0
-                }
+                // Weights + bias
+                (out_channels * in_channels * kernel_h * kernel_w) + out_channels
             }
-            Self::Linear => {
-                if output_shape.len() >= 2 && input_shape.len() >= 2 {
-                    let in_features = input_shape[input_shape.len() - 1] as usize;
-                    let out_features = output_shape[output_shape.len() - 1] as usize;
+            Self::Conv => 0,
+            Self::Linear if output_shape.len() >= 2 && input_shape.len() >= 2 => {
+                let in_features = input_shape[input_shape.len() - 1] as usize;
+                let out_features = output_shape[output_shape.len() - 1] as usize;
 
-                    // Weights + bias
-                    (in_features * out_features) + out_features
-                } else {
-                    0
-                }
+                // Weights + bias
+                (in_features * out_features) + out_features
             }
-            Self::BatchNorm => {
-                if input_shape.len() >= 2 {
-                    // gamma, beta, running_mean, running_var
-                    let channels = input_shape[1] as usize;
-                    channels * 4
-                } else {
-                    0
-                }
+            Self::Linear => 0,
+            Self::BatchNorm if input_shape.len() >= 2 => {
+                // gamma, beta, running_mean, running_var
+                let channels = input_shape[1] as usize;
+                channels * 4
             }
+            Self::BatchNorm => 0,
             _ => 0, // Most other operators don't have parameters
         }
     }
