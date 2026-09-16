@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdbool.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -134,6 +135,20 @@ static esp_err_t temp_sensor_read_celsius(float *out_celsius)
 #endif // HAVE_TEMP_SENSOR_V5
 
 // ----------------------------------------------------------------
+// Sensor validation
+// A failed sensor must never be converted into zeroes: zeroes look like a
+// healthy machine to the classifier. Invalid readings are handled as an
+// explicit sensor fault by the main loop instead.
+// ----------------------------------------------------------------
+static bool sensor_readings_valid(float temperature, float rms_x, float rms_y,
+                                  float rms_z)
+{
+    return isfinite(temperature) && isfinite(rms_x) && isfinite(rms_y) &&
+           isfinite(rms_z) && temperature >= -40.0f && temperature <= 125.0f &&
+           rms_x >= 0.0f && rms_y >= 0.0f && rms_z >= 0.0f;
+}
+
+// ----------------------------------------------------------------
 // Benchmark: measure min / mean / max inference latency
 // ----------------------------------------------------------------
 static void run_benchmark(int num_iterations)
@@ -223,7 +238,6 @@ void app_main(void)
         esp_err_t temp_ret = temp_sensor_read_celsius(&temperature);
         if (temp_ret != ESP_OK) {
             ESP_LOGW(TAG, "Temperature read failed: %s", esp_err_to_name(temp_ret));
-            temperature = 0.0f;  // safe fallback; model will still run
         }
 
         // 2. Read accelerometer RMS per axis over 32 samples
@@ -232,7 +246,19 @@ void app_main(void)
                                                       ACCEL_RMS_SAMPLES);
         if (accel_ret != ESP_OK) {
             ESP_LOGW(TAG, "Accel RMS read failed: %s", esp_err_to_name(accel_ret));
-            // fallback: leave at 0.0g — model will still classify
+        }
+
+        // Never classify incomplete or invalid sensor data.  A zero fallback
+        // is unsafe because it is a plausible healthy-machine input.
+        if (temp_ret != ESP_OK || accel_ret != ESP_OK ||
+            !sensor_readings_valid(temperature, rms_x, rms_y, rms_z)) {
+            ESP_LOGE(TAG,
+                     "[%05d] Temp: unavailable | Accel RMS: unavailable | "
+                     "Status: sensor_fault | Action: inspect sensors before restart",
+                     iteration);
+            iteration++;
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
 
         // 3. Quantize 4 inputs

@@ -11,7 +11,7 @@ The reference model classifies four states:
 3. `critical`
 4. `shutdown_required`
 
-The model is `Dense(4, 32) + ReLU + Dense(32, 4)` with 196 trainable parameters and four inputs:
+The model is `Dense(4, 32) + ReLU + Dense(32, 4)` with 292 trainable parameters and four inputs:
 
 ```text
 temperature / 120.0
@@ -162,7 +162,7 @@ idf.py build
 idf.py -p <serial-device> flash monitor
 ```
 
-At startup, firmware runs a latency benchmark, then samples the sensors once per second. `critical` and `shutdown_required` states are emitted as elevated log messages.
+At startup, firmware runs a latency benchmark, then samples the sensors once per second. `critical` and `shutdown_required` states are emitted as elevated log messages. If either sensor read fails or returns invalid values, the firmware emits `Status: sensor_fault`, skips inference, and asks the operator to inspect the sensors; it never turns missing data into a healthy prediction.
 
 ## Commercialization status
 
@@ -172,7 +172,7 @@ Before a customer deployment, validate:
 
 - Sensor calibration and mounting repeatability.
 - False-negative rate for critical and shutdown states.
-- Behavior when the MPU6050 or temperature sensor fails.
+- Recovery behavior after an MPU6050 or temperature sensor failure, including the `sensor_fault` path before allowing predictions to resume.
 - Model performance across machines and operating conditions.
 - ESP32 memory, latency, watchdog, and long-running stability.
 - A human-reviewed maintenance response for every alert level.
