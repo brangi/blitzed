@@ -48,6 +48,7 @@ The script uses a deterministic seed, keeps a held-out validation split separate
 - `blitzed_model_weights.bin` — raw weight export
 - `blitzed_model_report.json` — reproducibility and validation report
 - `blitzed_release_manifest.json` — release manifest with artifact sizes and SHA-256 checksums
+- `blitzed_release_gate.json` — auditable shutdown-recall acceptance result included in the manifest
 
 For a temporary or custom artifact directory:
 
@@ -116,7 +117,16 @@ python3 tools/build_predictive_maintenance_release.py \
   --seed 42
 ```
 
-It runs the quality gate, blocks unresolved warnings, trains the model, creates the release manifest, and verifies every artifact checksum. Review `blitzed_dataset_quality.json` before using `--allow-quality-warnings` for known and documented exceptions.
+It runs the quality gate, blocks unresolved warnings, trains the model, requires at least 90% held-out INT8 recall for `shutdown_required`, creates the release manifest, and verifies every artifact checksum. Review `blitzed_dataset_quality.json` before using `--allow-quality-warnings` for known and documented exceptions. Adjust the safety threshold only after review:
+
+```bash
+python3 tools/build_predictive_maintenance_release.py \
+  --dataset data/machine-readings.csv \
+  --output-dir releases/machine-v1 \
+  --min-shutdown-recall 0.95
+```
+
+The safety gate uses the INT8 validation metric because that is the model executed on the ESP32. A release is blocked when the metric is missing or below the configured threshold.
 
 ## Collect labeled sensor data
 
@@ -162,7 +172,7 @@ idf.py build
 idf.py -p <serial-device> flash monitor
 ```
 
-At startup, firmware runs a latency benchmark, then samples the sensors once per second. `critical` and `shutdown_required` states are emitted as elevated log messages. If either sensor read fails or returns invalid values, the firmware emits `Status: sensor_fault`, skips inference, and asks the operator to inspect the sensors; it never turns missing data into a healthy prediction.
+At startup, firmware runs a latency benchmark, then samples the sensors once per second. `critical` and `shutdown_required` states are emitted as elevated log messages. If either sensor read fails or returns invalid values, the firmware emits `Status: sensor_fault` with the failing sensor name, skips inference, and asks the operator to inspect the sensors; it never turns missing data into a healthy prediction. Once both sensors provide valid readings again, it emits `Status: sensor_recovered` and resumes inference.
 
 ## Commercialization status
 
