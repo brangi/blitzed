@@ -16,6 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
+from build_predictive_maintenance_release import (
+    build_shutdown_recall_gate_report,
+    shutdown_recall_error,
+)
 from train_predictive_maintenance import CLASS_NAMES, generate_training_data
 
 
@@ -53,9 +57,46 @@ def test_synthetic_classes_are_not_labeled_as_healthy_at_warning_levels():
     assert np.all(healthy[:, 1:].max(axis=1) < 2.2)
 
 
+def test_shutdown_recall_gate_accepts_safe_int8_model():
+    report = {"int8_validation": {"per_class": {"shutdown_required": 0.95}}}
+
+    assert shutdown_recall_error(report, 0.90) is None
+
+
+def test_shutdown_recall_gate_rejects_unsafe_int8_model():
+    report = {"int8_validation": {"per_class": {"shutdown_required": 0.84}}}
+
+    error = shutdown_recall_error(report, 0.90)
+
+    assert error is not None
+    assert "84.0%" in error
+    assert "90.0%" in error
+
+
+def test_shutdown_recall_gate_rejects_missing_metric():
+    assert shutdown_recall_error({}, 0.90) is not None
+
+
+def test_shutdown_recall_gate_report_is_auditable():
+    report = {"int8_validation": {"per_class": {"shutdown_required": 0.93}}}
+
+    gate_report = build_shutdown_recall_gate_report(report, 0.90)
+
+    assert gate_report == {
+        "gate": "shutdown_required_int8_recall",
+        "minimum_recall": 0.90,
+        "observed_recall": 0.93,
+        "status": "passed",
+        "error": None,
+    }
+
+
 def test_firmware_does_not_classify_failed_sensor_reads():
     assert "Status: sensor_fault" in FIRMWARE_MAIN
-    assert "temp_ret != ESP_OK || accel_ret != ESP_OK" in FIRMWARE_MAIN
+    assert "Fault: %s" in FIRMWARE_MAIN
+    assert '"temperature_and_accelerometer"' in FIRMWARE_MAIN
+    assert "Status: sensor_recovered" in FIRMWARE_MAIN
+    assert "sensor_fault_active = false" in FIRMWARE_MAIN
     assert "temperature = 0.0f;  // safe fallback" not in FIRMWARE_MAIN
     assert "model will still classify" not in FIRMWARE_MAIN
     assert "continue;" in FIRMWARE_MAIN

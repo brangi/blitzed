@@ -140,12 +140,23 @@ static esp_err_t temp_sensor_read_celsius(float *out_celsius)
 // healthy machine to the classifier. Invalid readings are handled as an
 // explicit sensor fault by the main loop instead.
 // ----------------------------------------------------------------
+static bool temperature_reading_valid(float temperature)
+{
+    return isfinite(temperature) && temperature >= -40.0f &&
+           temperature <= 125.0f;
+}
+
+static bool acceleration_readings_valid(float rms_x, float rms_y, float rms_z)
+{
+    return isfinite(rms_x) && isfinite(rms_y) && isfinite(rms_z) &&
+           rms_x >= 0.0f && rms_y >= 0.0f && rms_z >= 0.0f;
+}
+
 static bool sensor_readings_valid(float temperature, float rms_x, float rms_y,
                                   float rms_z)
 {
-    return isfinite(temperature) && isfinite(rms_x) && isfinite(rms_y) &&
-           isfinite(rms_z) && temperature >= -40.0f && temperature <= 125.0f &&
-           rms_x >= 0.0f && rms_y >= 0.0f && rms_z >= 0.0f;
+    return temperature_reading_valid(temperature) &&
+           acceleration_readings_valid(rms_x, rms_y, rms_z);
 }
 
 // ----------------------------------------------------------------
@@ -231,6 +242,7 @@ void app_main(void)
     int8_t q_input[4];
     int8_t q_output[4];
     int iteration = 0;
+    bool sensor_fault_active = false;
 
     while (1) {
         // 1. Read on-chip temperature (°C)
@@ -248,17 +260,35 @@ void app_main(void)
             ESP_LOGW(TAG, "Accel RMS read failed: %s", esp_err_to_name(accel_ret));
         }
 
+        bool temperature_valid = temp_ret == ESP_OK &&
+                                 temperature_reading_valid(temperature);
+        bool acceleration_valid = accel_ret == ESP_OK &&
+                                  acceleration_readings_valid(rms_x, rms_y, rms_z);
+
         // Never classify incomplete or invalid sensor data.  A zero fallback
         // is unsafe because it is a plausible healthy-machine input.
-        if (temp_ret != ESP_OK || accel_ret != ESP_OK ||
+        if (!temperature_valid || !acceleration_valid ||
             !sensor_readings_valid(temperature, rms_x, rms_y, rms_z)) {
+            const char *fault = !temperature_valid && !acceleration_valid
+                                    ? "temperature_and_accelerometer"
+                                : !temperature_valid ? "temperature" : "accelerometer";
             ESP_LOGE(TAG,
                      "[%05d] Temp: unavailable | Accel RMS: unavailable | "
-                     "Status: sensor_fault | Action: inspect sensors before restart",
-                     iteration);
+                     "Status: sensor_fault | Fault: %s | "
+                     "Action: inspect sensors before restart",
+                     iteration, fault);
+            sensor_fault_active = true;
             iteration++;
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
+        }
+
+        if (sensor_fault_active) {
+            ESP_LOGI(TAG,
+                     "[%05d] Status: sensor_recovered | "
+                     "Action: inference resumed",
+                     iteration);
+            sensor_fault_active = false;
         }
 
         // 3. Quantize 4 inputs
